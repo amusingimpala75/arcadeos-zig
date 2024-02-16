@@ -22,16 +22,6 @@ pub fn initKernelPaging() void {
         }
     };
 
-    kernel.terminal.print("kernel at 0x{X} => 0x{X}\n", .{
-        kernel_loc_req.response.?.physical_base,
-        kernel_loc_req.response.?.virtual_base,
-    });
-
-    kernel.terminal.print(
-        "Higher half addr start: 0x{X}\n",
-        .{hhdm_start},
-    );
-
     physical_mem_manager = PhysicalMemoryManager.setupPhysicalMemoryManager() catch |err| {
         if (err == error.LimineMemMapMissing) {
             @panic("limine did not provide a memory map");
@@ -47,9 +37,7 @@ pub fn initKernelPaging() void {
     pml4.initPML4();
 
     kernel.main_serial.print("hhdm starts at 0x{X}\n", .{hhdm_start});
-    kernel.main_serial.print("kernel start..length: 0x{X}..0x{X}\n", .{ kernel_loc_req.response.?.physical_base, physical_mem_manager.klen });
 
-    kernel.terminal.print("font location: 0x{X}\n", .{@intFromPtr(@import("../fonts/Font.zig").fonts[0].bytes.ptr)});
 
     // Map the kernel as well again to the addr (> 0xFFFFFFFF80000000) provided by the bootloader
     map(
@@ -116,13 +104,7 @@ pub fn initKernelPaging() void {
 
     pml4.load();
 
-    kernel.main_framebuffer.clear();
     kernel.terminal.print("successfully transitioned to our paging\n", .{});
-    kernel.terminal.print("foo: 0x{X}\n", .{blk: {
-        const new_pml4 = PageTable.pml4Recurse();
-        const entry = new_pml4.entries[254];
-        break :blk entry.physical_addr_page;
-    }});
     // TODO re-write map/unmap/resolve code
     asm volatile ("hlt");
 }
@@ -165,7 +147,6 @@ fn map(phys: usize, virt: usize, len: usize, pmm: *PhysicalMemoryManager, pml4: 
 
         pml1.entries[pml1_offset].setAsKernelRWX(phys + i);
     }
-    //kernel.terminal.print("mapped 0x{X} through 0x{X} starting at 0x{X} ({} blocks)\n", .{ virt, virt + i, phys, @divTrunc(len, page_size) });
 }
 
 const page_size = 4096;
