@@ -1,0 +1,6 @@
+*.DS_Store
+*.iso
+iso/
+limine/
+zig-out
+zig-cache

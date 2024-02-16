@@ -1,0 +1,3 @@
+[submodule "src/fonts/vga-text-mode-fonts"]
+	path = src/fonts/vga-text-mode-fonts
+	url = https://github.com/viler-int10h/vga-text-mode-fonts.git
