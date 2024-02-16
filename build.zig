@@ -75,7 +75,10 @@ pub fn build(b: *std.Build) void {
     const debug_cmd = b.addSystemCommand(&[_][]const u8{
         "/bin/sh",
         "-c",
-        "qemu-system-x86_64 -M q35 -m 2G -cdrom arcadeos.iso -boot d -smp 2 -no-reboot -S -s & lldb zig-out/bin/arcadeos.elf",
+        "qemu-system-x86_64 -M q35 -m 2G -cdrom arcadeos.iso -boot d -smp 2 --no-reboot -S -s & lldb zig-out/bin/arcadeos.elf",
+        // also consider option
+        // -d cpu_reset -monitor stdio
+        // in order to print registers to stdio when crash
     });
     debug_cmd.step.dependOn(build_debug_iso_step);
     const debug_step = b.step("debug", "Run arcadeos with qemu in debug mode");
