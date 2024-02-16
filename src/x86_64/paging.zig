@@ -38,11 +38,13 @@ pub fn initKernelPaging() void {
 
     kernel.main_serial.print("hhdm starts at 0x{X}\n", .{hhdm_start});
 
+    const kernel_location = kernel_loc_req.response orelse @panic("bootloader did not provide kernel location");
+    kernel.main_serial.print("kernel start..length: 0x{X}..0x{X}\n", .{ kernel_location.physical_base, physical_mem_manager.klen });
 
     // Map the kernel as well again to the addr (> 0xFFFFFFFF80000000) provided by the bootloader
     map(
-        kernel_loc_req.response.?.physical_base,
-        kernel_loc_req.response.?.virtual_base,
+        kernel_location.physical_base,
+        kernel_location.virtual_base,
         physical_mem_manager.klen,
         physical_mem_manager,
         pml4,
