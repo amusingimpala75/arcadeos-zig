@@ -31,7 +31,7 @@ const FreeList = std.SinglyLinkedList(usize);
 block_map: []BlockEntryPair,
 free_lists: [max_order + 1]FreeList,
 free_list_nodes: FreeList,
-len: usize,
+block_count: usize,
 klen: usize,
 
 const arr_offset: usize = 24;
@@ -41,16 +41,16 @@ comptime {
     std.debug.assert(@sizeOf(PhysicalMemoryManager) <= block_size);
 }
 
-fn initAt(addr: usize, len: usize, klen: usize) *PhysicalMemoryManager {
+fn initAt(addr: usize, block_count: usize, klen: usize) *PhysicalMemoryManager {
     var self: *PhysicalMemoryManager = @ptrFromInt(addr);
-    self.len = len;
+    self.block_count = block_count;
     self.klen = klen;
 
     const pair_len = blk: {
-        if (len & 1 == 1) {
-            break :blk len / 2 + 1;
+        if (block_count & 1 == 1) {
+            break :blk block_count / 2 + 1;
         }
-        break :blk len / 2;
+        break :blk block_count / 2;
     };
     self.block_map = @as(
         [*]BlockEntryPair,
@@ -73,10 +73,13 @@ fn initAt(addr: usize, len: usize, klen: usize) *PhysicalMemoryManager {
         self.free_list_nodes.prepend(node);
     }
 
-    //self.setupBuddies(self.block_map, max_order, 0);
-    self.setupBuddies(max_order, 0, len);
+    self.setupBuddies(max_order, 0, block_count);
 
     return self;
+}
+
+pub fn byteSize(self: PhysicalMemoryManager) usize {
+    return self.block_count * block_size + @sizeOf(PhysicalMemoryManager);
 }
 
 // Requires the free list nodes to be set up first
@@ -375,7 +378,7 @@ fn blockSizeOf(comptime t: type) usize {
 
 // just for debugging purposes
 fn print(self: PhysicalMemoryManager, writer: anytype) void {
-    std.fmt.format(writer, "blocks managed: {}\n", .{self.len}) catch {};
+    std.fmt.format(writer, "blocks managed: {}\n", .{self.block_count}) catch {};
     for (self.free_lists, 0..) |list, i| {
         var val = list.first;
         std.fmt.format(writer, "order {}:", .{i}) catch {};
