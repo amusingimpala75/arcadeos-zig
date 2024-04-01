@@ -22,7 +22,7 @@ pub fn initKernelPaging() void {
         }
     };
 
-    physical_mem_manager = PhysicalMemoryManager.setupPhysicalMemoryManager() catch |err| {
+    physical_mem_manager = PhysicalMemoryManager.setupPhysicalMemoryManager(false) catch |err| {
         if (err == error.LimineMemMapMissing) {
             @panic("limine did not provide a memory map");
         } else if (err == error.NotEnoughPhysicalMemory) {

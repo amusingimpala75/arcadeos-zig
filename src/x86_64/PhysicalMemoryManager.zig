@@ -43,6 +43,8 @@ block_count: usize,
 /// here it is since this is a place that we loop over the
 /// limine memmap
 klen: usize,
+/// Whether to debug print all allocations to the main serial port
+debug: bool,
 
 const arr_offset: usize = 24;
 
@@ -52,10 +54,11 @@ comptime {
     std.debug.assert(@sizeOf(PhysicalMemoryManager) <= block_size);
 }
 
-fn initAt(addr: usize, block_count: usize, klen: usize) *PhysicalMemoryManager {
+fn initAt(addr: usize, block_count: usize, klen: usize, debug: bool) *PhysicalMemoryManager {
     var self: *PhysicalMemoryManager = @ptrFromInt(addr);
     self.block_count = block_count;
     self.klen = klen;
+    self.debug = debug;
 
     const pair_len = blk: {
         if (block_count & 1 == 1) {
@@ -276,20 +279,24 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
     // look for free block in order <order>
     // if one exists, pop it and return it
     // otherwise, check for one of a larger size and split it down
-    kernel.main_serial.print("starting allocation of block of order {}\nstate:\n", .{order});
-    self.print(kernel.main_serial.writer);
-    kernel.main_serial.print("\n", .{});
-    defer {
-        kernel.main_serial.print("done\nstate:\n", .{});
+    if (self.debug) {
+        kernel.main_serial.print("starting allocation of block of order {}\nstate:\n", .{order});
         self.print(kernel.main_serial.writer);
         kernel.main_serial.print("\n", .{});
+        defer {
+            kernel.main_serial.print("done\nstate:\n", .{});
+            self.print(kernel.main_serial.writer);
+            kernel.main_serial.print("\n", .{});
+        }
     }
 
     if (self.free_lists[order].first) |_| {
         const node = self.free_lists[order].popFirst().?;
         const ret = node.data;
         self.free_list_nodes.prepend(node);
-        kernel.main_serial.print("returning: 0x{X}\n", .{ret});
+        if (self.debug) {
+            kernel.main_serial.print("returning: 0x{X}\n", .{ret});
+        }
         // TODO zero the page
         return ret;
     } else {
@@ -300,7 +307,9 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
                 const node = self.free_lists[order].popFirst().?;
                 const ret = node.data;
                 self.free_list_nodes.prepend(node);
-                kernel.main_serial.print("returning: 0x{X}\n", .{ret});
+                if (self.debug) {
+                    kernel.main_serial.print("returning: 0x{X}\n", .{ret});
+                }
                 // TODO zero the page
                 return ret;
             }
@@ -425,7 +434,7 @@ fn pmmBlockSize(mem_size: usize) usize {
 }
 
 /// Set up the PMM, returning it not success or otherwise an error
-pub fn setupPhysicalMemoryManager() !*PhysicalMemoryManager {
+pub fn setupPhysicalMemoryManager(debug: bool) !*PhysicalMemoryManager {
     if (mem_map_request.response) |response| {
         for (response.entries()) |entry| {
             kernel.main_serial.print("{} {} {}\n", .{
@@ -486,6 +495,7 @@ pub fn setupPhysicalMemoryManager() !*PhysicalMemoryManager {
                     entry.base,
                     block_count,
                     klen,
+                    debug,
                 );
             }
         } else {
