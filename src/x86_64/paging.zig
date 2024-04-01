@@ -14,21 +14,15 @@ var hhdm_start: usize = 0;
 export var kernel_loc_req = limine.KernelAddressRequest{};
 
 pub fn initKernelPaging() void {
-    hhdm_start = blk: {
-        if (hhdm_start_request.response) |response| {
-            break :blk response.offset;
-        } else {
-            @panic("Could not find where higher half starts");
-        }
-    };
+    hhdm_start = (hhdm_start_request.response orelse @panic("Could not find where HHDM begins")).offset;
 
     physical_mem_manager = PhysicalMemoryManager.setupPhysicalMemoryManager(false) catch |err| {
         if (err == error.LimineMemMapMissing) {
-            @panic("limine did not provide a memory map");
+            @panic("Limine did not provide a memory map, maybe try rebooting?");
         } else if (err == error.NotEnoughPhysicalMemory) {
-            @panic("Not enough physical memory to setup physical memory manager, and so therefore also to run");
+            @panic("Not enough physical memory to run ArcadeOS on this system");
         } else {
-            @panic("Could not setup physical memory manager");
+            unreachable; // there shouldn't be any other errors?
         }
     };
 
@@ -105,12 +99,6 @@ pub fn initKernelPaging() void {
             physical_mem_manager,
             pml4,
         );
-    }
-
-    for (pml4.entries) |entry4| {
-        if (entry4.present) {
-            kernel.main_serial.print("0x{X}\n", .{entry4.physical_addr_page});
-        }
     }
 
     pml4.load();

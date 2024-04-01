@@ -3,8 +3,6 @@ const limine = @import("limine");
 
 const kernel = @import("../kernel.zig");
 
-const PhysicalAddress = usize;
-
 const PhysicalMemoryManager = @This();
 
 export var mem_map_request = limine.MemoryMapRequest{};
@@ -16,17 +14,57 @@ const block_size = 4096;
 
 const max_order = 7;
 
+/// Stores data about a block, specifically whether it is free, and what level (2 ^ n blocks large) is it
 const BlockEntry = packed struct {
     level: u3,
     free: bool,
 };
 
+/// Group of `BlockEntry`s. I still have to double check if it is necessary
+/// in order to cram two `BlockEntry`s per byte in an array.
 const BlockEntryPair = packed struct {
     l: BlockEntry,
     r: BlockEntry,
 
     comptime {
         std.debug.assert(@sizeOf(@This()) == @sizeOf(u8));
+    }
+};
+
+/// Since `BlockEntry`s can be in the left or right half of a byte, Zig wanted me to
+/// distinguish both of those when working with pointer to `BlockEntry`s. So we get this.
+const BlockEntryUnion = union(enum) {
+    l: *align(1:0:1) BlockEntry,
+    r: *align(1:4:1) BlockEntry,
+
+    fn level(self: BlockEntryUnion) u3 {
+        if (self == .l) {
+            return self.l.level;
+        }
+        return self.r.level;
+    }
+
+    fn setLevel(self: BlockEntryUnion, o: u3) void {
+        if (self == .l) {
+            self.l.level = o;
+        } else {
+            self.r.level = o;
+        }
+    }
+
+    fn free(self: BlockEntryUnion) bool {
+        if (self == .l) {
+            return self.l.free;
+        }
+        return self.r.free;
+    }
+
+    fn setFree(self: BlockEntryUnion, f: bool) void {
+        if (self == .l) {
+            self.l.free = f;
+        } else {
+            self.r.free = f;
+        }
     }
 };
 
@@ -55,44 +93,54 @@ comptime {
     std.debug.assert(@sizeOf(PhysicalMemoryManager) <= block_size);
 }
 
+/// Sets up a PMM at the virtual address `addr`, which for our purposes is either going to be
+/// in the lower half direct map (virt = phys) or the higher half direct map (virt = phys + HHDM_START).
+/// The PMM sits in it's own page, immediately followed by blocks for the `block_map` (padded out to the end
+/// of the block), finally ending with blocks for the free list nodes (also padded out to the end of the block).
 fn initAt(addr: usize, block_count: usize, klen: usize, debug: bool) *PhysicalMemoryManager {
     var self: *PhysicalMemoryManager = @ptrFromInt(addr);
     self.block_count = block_count;
     self.klen = klen;
     self.debug = debug;
 
-    const pair_len = blk: {
-        if (block_count & 1 == 1) {
-            break :blk block_count / 2 + 1;
-        }
-        break :blk block_count / 2;
-    };
+    // Half as many block pairs as blocks, unless odd in which case +1
+    const pair_len = divCeil(block_count, 2);
+
     self.block_map = @as(
         [*]BlockEntryPair,
         @ptrFromInt(addr + block_size),
+        // Skip the first block as that is the location of the main
+        // PMM data structure.
     )[0..pair_len];
 
+    // Initialize these free lists empty
     for (0..self.free_lists.len) |i| {
         self.free_lists[i] = .{};
     }
     self.free_list_nodes = .{};
 
+    // Find the last entry of the block pairs, go just past that,
+    // round up to the next block, and set that as the free_nodes
     const free_nodes = @as([*]FreeList.Node, @ptrFromInt(blk: {
-        const possible = addr + block_size + @sizeOf(BlockEntryPair) * pair_len;
-        if (possible % block_size == 0)
-            break :blk possible;
-        break :blk (@divTrunc(possible, block_size) + 1) * block_size;
+        const last_block_pair = @intFromPtr(&self.block_map[pair_len - 1]);
+        const next_unused_mem = last_block_pair + @sizeOf(BlockEntryPair);
+        break :blk divCeil(next_unused_mem, block_size) * block_size;
     }))[0..pair_len];
 
+    // Initially set all free list nodes as extra storage, to be grabbed during
+    // `setupBuddies`
     for (free_nodes) |*node| {
         self.free_list_nodes.prepend(node);
     }
 
+    // Actually register all of the `BlockEntryPair`s and `FreeList`s
     self.setupBuddies(max_order, 0, block_count);
 
     return self;
 }
 
+/// Returns the size, in bytes, that the PMM and it's associated data structures
+/// (ie. pair map and free lists) require.
 pub fn byteSize(self: PhysicalMemoryManager) usize {
     const ramSize = self.block_count * block_size;
     const selfBlockSize = pmmBlockSize(ramSize);
@@ -347,41 +395,6 @@ fn allocBlocksAt(self: *PhysicalMemoryManager, block: usize, order: u3) !void {
     b.setFree(false);
 }
 
-const BlockEntryUnion = union(enum) {
-    l: *align(1:0:1) BlockEntry,
-    r: *align(1:4:1) BlockEntry,
-
-    fn level(self: BlockEntryUnion) u3 {
-        if (self == .l) {
-            return self.l.level;
-        }
-        return self.r.level;
-    }
-
-    fn setLevel(self: BlockEntryUnion, o: u3) void {
-        if (self == .l) {
-            self.l.level = o;
-        } else {
-            self.r.level = o;
-        }
-    }
-
-    fn free(self: BlockEntryUnion) bool {
-        if (self == .l) {
-            return self.l.free;
-        }
-        return self.r.free;
-    }
-
-    fn setFree(self: BlockEntryUnion, f: bool) void {
-        if (self == .l) {
-            self.l.free = f;
-        } else {
-            self.r.free = f;
-        }
-    }
-};
-
 /// Return the BlockEntry at index <block>
 fn getBlock(self: *PhysicalMemoryManager, block: usize) BlockEntryUnion {
     const pair = &self.block_map[block >> 1];
@@ -435,104 +448,103 @@ fn pmmBlockSize(mem_size: usize) usize {
 
 /// Set up the PMM, returning it not success or otherwise an error
 pub fn setupPhysicalMemoryManager(debug: bool) !*PhysicalMemoryManager {
-    if (mem_map_request.response) |response| {
-        for (response.entries()) |entry| {
-            kernel.main_serial.print("{} {} {}\n", .{
-                entry.kind,
-                entry.base >> 12,
-                entry.length >> 12,
-            });
-        }
-
-        var klen: usize = 0;
-        const map_entries = response.entries();
-        // Find the highest address that isn't reserved, bad, or framebuffer
-        // At this point we assume that it is the upper limit of RAM,
-        // although this is an assumption that may need revisiting
-        const highest_addr = blk: {
-            var most: usize = 0;
-            for (map_entries) |entry| {
-                // If the mem is of a valid type and ends past the
-                // current furthest mem, update the end-of-mem value.
-                if (entry.kind != limine.MemoryMapEntryType.reserved and
-                    entry.kind != limine.MemoryMapEntryType.bad_memory and
-                    entry.kind != limine.MemoryMapEntryType.framebuffer and
-                    entry.base + entry.length > most)
-                {
-                    most = entry.base + entry.length;
-                }
-                // Also we're keeping track of the klen, as limine only gives us
-                // kstart phys and virt in the KernelAddressRequest
-                if (entry.kind == limine.MemoryMapEntryType.kernel_and_modules) {
-                    if (klen != 0) {
-                        @panic("duplicate kernel memmap entries");
-                    }
-                    klen = entry.length;
-                }
-            }
-            break :blk most;
-        };
-
-        // Require the selected address to be block / page -aligned
-        if (highest_addr % block_size != 0) {
-            @panic("RAM size not block size-aligned!");
-        }
-
-        const pmm_block_size = pmmBlockSize(highest_addr);
-        const block_count = highest_addr / block_size;
-
-        const pmm: *PhysicalMemoryManager = blk: for (map_entries) |entry| {
-            // TODO add support for acpi_reclaimable
-            // and bootloader_reclaimable
-            // also below
-
-            // Look for usable memory that is large enough to house the PMM,
-            // first fit approach
-            if (entry.kind == limine.MemoryMapEntryType.usable and
-                blockFromAddr(entry.length) > pmm_block_size)
-            {
-                break :blk PhysicalMemoryManager.initAt(
-                    entry.base,
-                    block_count,
-                    klen,
-                    debug,
-                );
-            }
-        } else {
-            return error.NotEnoughPhysicalMemory;
-        };
-
-        // map the entries that from limine
-        for (map_entries) |entry| {
-            if (entry.kind != limine.MemoryMapEntryType.usable) {
-                for (blockFromAddr(entry.base)..blockFromAddr(entry.base + entry.length)) |i| {
-                    if (i >= block_count) {
-                        break;
-                    }
-                    pmm.allocBlocksAt(i, 0) catch |err| {
-                        kernel.main_serial.print("uh-oh: {}\n", .{err});
-                        @panic("error marking reserved pages as in use");
-                    };
-                }
-            }
-        }
-
-        pmm.allocBlocksAt(0, 0) catch |err| {
-            kernel.main_serial.print("uh-oh: {}\n", .{err});
-            @panic("error marking bottom page as unusable");
-        };
-
-        kernel.main_serial.print("pmm at 0x{X}, len 0x{X}\n", .{ @intFromPtr(pmm), pmm_block_size });
-
-        // map this as well
-        for (blockFromAddr(@intFromPtr(pmm))..blockFromAddr(@intFromPtr(pmm)) + pmm_block_size) |i| {
-            pmm.allocBlocksAt(i, 0) catch {
-                @panic("error mapping allocator's pages as in use");
-            };
-        }
-
-        return pmm;
-    } else {
-        return error.LimineMemMapMissing;
+    const response = mem_map_request.response orelse return error.LimineMemMapMissing;
+    // Print out all of the mem map entries
+    for (response.entries()) |entry| {
+        kernel.main_serial.print("{} {} {}\n", .{
+            entry.kind,
+            entry.base >> 12,
+            entry.length >> 12,
+        });
     }
+
+    var klen: usize = 0;
+    const map_entries = response.entries();
+    // Find the highest address that isn't reserved, bad, or framebuffer
+    // At this point we assume that it is the upper limit of RAM,
+    // although this is an assumption that may need revisiting
+    const highest_addr = blk: {
+        var most: usize = 0;
+        for (map_entries) |entry| {
+            // If the mem is of a valid type and ends past the
+            // current furthest mem, update the end-of-mem value.
+            if (entry.kind != limine.MemoryMapEntryType.reserved and
+                entry.kind != limine.MemoryMapEntryType.bad_memory and
+                entry.kind != limine.MemoryMapEntryType.framebuffer and
+                entry.base + entry.length > most)
+            {
+                most = entry.base + entry.length;
+            }
+            // Also we're keeping track of the klen, as limine only gives us
+            // kstart phys and virt in the KernelAddressRequest
+            if (entry.kind == limine.MemoryMapEntryType.kernel_and_modules) {
+                if (klen != 0) {
+                    @panic("duplicate kernel memmap entries");
+                }
+                klen = entry.length;
+            }
+        }
+        break :blk most;
+    };
+
+    // Require the selected address to be block / page -aligned
+    if (highest_addr % block_size != 0) {
+        @panic("RAM size not block size-aligned!");
+    }
+
+    const pmm_block_size = pmmBlockSize(highest_addr);
+    const block_count = highest_addr / block_size;
+
+    const pmm: *PhysicalMemoryManager = blk: for (map_entries) |entry| {
+        // TODO add support for acpi_reclaimable
+        // and bootloader_reclaimable
+        // also below
+
+        // Look for usable memory that is large enough to house the PMM,
+        // first fit approach
+        if (entry.kind == limine.MemoryMapEntryType.usable and
+            blockFromAddr(entry.length) > pmm_block_size)
+        {
+            break :blk PhysicalMemoryManager.initAt(
+                entry.base,
+                block_count,
+                klen,
+                debug,
+            );
+        }
+    } else {
+        return error.NotEnoughPhysicalMemory;
+    };
+
+    // map the entries that from limine
+    for (map_entries) |entry| {
+        if (entry.kind != limine.MemoryMapEntryType.usable) {
+            for (blockFromAddr(entry.base)..blockFromAddr(entry.base + entry.length)) |i| {
+                if (i >= block_count) {
+                    break;
+                }
+                pmm.allocBlocksAt(i, 0) catch |err| {
+                    kernel.main_serial.print("uh-oh: {}\n", .{err});
+                    @panic("error marking reserved pages as in use");
+                };
+            }
+        }
+    }
+
+    // TODO: is this necessary?
+    pmm.allocBlocksAt(0, 0) catch |err| {
+        kernel.main_serial.print("uh-oh: {}\n", .{err});
+        @panic("error marking bottom page as unusable");
+    };
+
+    kernel.main_serial.print("pmm at 0x{X}, len 0x{X}\n", .{ @intFromPtr(pmm), pmm_block_size });
+
+    // map this as well
+    for (blockFromAddr(@intFromPtr(pmm))..blockFromAddr(@intFromPtr(pmm)) + pmm_block_size) |i| {
+        pmm.allocBlocksAt(i, 0) catch {
+            @panic("error mapping allocator's pages as in use");
+        };
+    }
+
+    return pmm;
 }
