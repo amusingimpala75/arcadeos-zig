@@ -28,16 +28,27 @@ const BlockEntryPair = packed struct {
 
 const FreeList = std.SinglyLinkedList(usize);
 
+/// O(1) lookup of block size / free status
 block_map: []BlockEntryPair,
 free_lists: [max_order + 1]FreeList,
+/// Free list nodes. Since this has to be done without an external
+/// mem manager, we just make a pool of the free list nodes here,
+/// as it's own linked list.
 free_list_nodes: FreeList,
+/// Number of blocks managed by the PMM
 block_count: usize,
+/// Size of the kernel
+/// TODO:
+/// This should probably be elsewhere, but for now
+/// here it is since this is a place that we loop over the
+/// limine memmap
 klen: usize,
 
 const arr_offset: usize = 24;
 
 comptime {
     std.debug.assert(@sizeOf(BlockEntryPair) == @sizeOf(u8));
+    // PMM is not allowed to be larger than one block
     std.debug.assert(@sizeOf(PhysicalMemoryManager) <= block_size);
 }
 
@@ -426,9 +437,14 @@ pub fn setupPhysicalMemoryManager() !*PhysicalMemoryManager {
 
         var klen: usize = 0;
         const map_entries = response.entries();
+        // Find the highest address that isn't reserved, bad, or framebuffer
+        // At this point we assume that it is the upper limit of RAM,
+        // although this is an assumption that may need revisiting
         const highest_addr = blk: {
             var most: usize = 0;
             for (map_entries) |entry| {
+                // If the mem is of a valid type and ends past the
+                // current furthest mem, update the end-of-mem value.
                 if (entry.kind != limine.MemoryMapEntryType.reserved and
                     entry.kind != limine.MemoryMapEntryType.bad_memory and
                     entry.kind != limine.MemoryMapEntryType.framebuffer and
@@ -436,6 +452,8 @@ pub fn setupPhysicalMemoryManager() !*PhysicalMemoryManager {
                 {
                     most = entry.base + entry.length;
                 }
+                // Also we're keeping track of the klen, as limine only gives us
+                // kstart phys and virt in the KernelAddressRequest
                 if (entry.kind == limine.MemoryMapEntryType.kernel_and_modules) {
                     if (klen != 0) {
                         @panic("duplicate kernel memmap entries");
