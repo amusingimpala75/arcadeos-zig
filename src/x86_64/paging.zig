@@ -101,11 +101,10 @@ pub fn initKernelPaging() void {
     // Map the physical memory manager
     {
         const pmm_virt = @intFromPtr(physical_mem_manager);
-        const pmm_phys = if (pmm_virt > hhdm_start) pmm_virt - hhdm_start else hhdm_start;
+        const pmm_phys = if (pmm_virt > hhdm_start) pmm_virt - hhdm_start else pmm_virt;
         map(
             pmm_phys,
             pmm_virt,
-            // TODO don't be so hacky
             physical_mem_manager.byteSize(),
             physical_mem_manager,
             pml4,

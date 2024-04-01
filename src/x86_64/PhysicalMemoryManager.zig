@@ -79,7 +79,11 @@ fn initAt(addr: usize, block_count: usize, klen: usize) *PhysicalMemoryManager {
 }
 
 pub fn byteSize(self: PhysicalMemoryManager) usize {
-    return self.block_count * block_size + @sizeOf(PhysicalMemoryManager);
+    const ramSize = self.block_count * block_size;
+    const selfBlockSize = pmmBlockSize(ramSize);
+    const selfByteSize = selfBlockSize * block_size;
+    kernel.main_serial.print("{} ramSize, {} blockSize, {} byteSize\n", .{ ramSize, selfBlockSize, selfByteSize });
+    return selfByteSize;
 }
 
 // Requires the free list nodes to be set up first
@@ -371,9 +375,12 @@ fn blockFromAddr(addr: usize) usize {
     return addr / block_size;
 }
 
-fn blockSizeOf(comptime t: type) usize {
-    const ret = @sizeOf(t) / block_size;
-    return if (ret % block_size == 0) ret / block_size else ret / block_size + 1;
+fn divCeil(l: usize, r: usize) usize {
+    return if (l % r == 0) l / r else l / r + 1;
+}
+
+fn blockSizeOf(size: usize) usize {
+    return divCeil(size, block_size);
 }
 
 // just for debugging purposes
@@ -393,6 +400,20 @@ fn print(self: PhysicalMemoryManager, writer: anytype) void {
     }
 }
 
+/// Returns the size of a PMM managing `memSize` bytes of RAM.
+fn pmmBlockSize(mem_size: usize) usize {
+    const block_count = divCeil(mem_size, block_size);
+    // pairCount == numberOfBytes for storing block metadata
+    const pair_count = divCeil(block_count, 2);
+    const pair_byte_count = pair_count * @sizeOf(BlockEntryPair); // Should be equivalent to = pairCount
+
+    const free_node_count = pair_count; // We should never need more than blockCount / 2 (+1 if odd) free list nodes
+    const free_node_byte_count = free_node_count * @sizeOf(FreeList.Node);
+
+    return blockSizeOf(@sizeOf(PhysicalMemoryManager)) + blockSizeOf(pair_byte_count) + blockSizeOf(free_node_byte_count);
+}
+
+/// Set up the PMM, returning it not success or otherwise an error
 pub fn setupPhysicalMemoryManager() !*PhysicalMemoryManager {
     if (mem_map_request.response) |response| {
         for (response.entries()) |entry| {
@@ -425,20 +446,21 @@ pub fn setupPhysicalMemoryManager() !*PhysicalMemoryManager {
             break :blk most;
         };
 
+        // Require the selected address to be block / page -aligned
+        if (highest_addr % block_size != 0) {
+            @panic("RAM size not block size-aligned!");
+        }
+
+        const pmm_block_size = pmmBlockSize(highest_addr);
         const block_count = highest_addr / block_size;
-        const pmm_block_size = blk: {
-            var val = block_count / @sizeOf(usize);
-            if (block_count % @sizeOf(usize) != 0) {
-                val += 1;
-            }
-            break :blk blockSizeOf(PhysicalMemoryManager) +
-                blockFromAddr(val);
-        };
 
         const pmm: *PhysicalMemoryManager = blk: for (map_entries) |entry| {
             // TODO add support for acpi_reclaimable
             // and bootloader_reclaimable
             // also below
+
+            // Look for usable memory that is large enough to house the PMM,
+            // first fit approach
             if (entry.kind == limine.MemoryMapEntryType.usable and
                 blockFromAddr(entry.length) > pmm_block_size)
             {
