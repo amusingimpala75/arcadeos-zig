@@ -24,6 +24,10 @@ const BlockEntry = packed struct {
 const BlockEntryPair = packed struct {
     l: BlockEntry,
     r: BlockEntry,
+
+    comptime {
+        std.debug.assert(@sizeOf(@This()) == @sizeOf(u8));
+    }
 };
 
 const FreeList = std.SinglyLinkedList(usize);
@@ -46,10 +50,7 @@ klen: usize,
 /// Whether to debug print all allocations to the main serial port
 debug: bool,
 
-const arr_offset: usize = 24;
-
 comptime {
-    std.debug.assert(@sizeOf(BlockEntryPair) == @sizeOf(u8));
     // PMM is not allowed to be larger than one block
     std.debug.assert(@sizeOf(PhysicalMemoryManager) <= block_size);
 }
@@ -96,7 +97,6 @@ pub fn byteSize(self: PhysicalMemoryManager) usize {
     const ramSize = self.block_count * block_size;
     const selfBlockSize = pmmBlockSize(ramSize);
     const selfByteSize = selfBlockSize * block_size;
-    kernel.main_serial.print("{} ramSize, {} blockSize, {} byteSize\n", .{ ramSize, selfBlockSize, selfByteSize });
     return selfByteSize;
 }
 

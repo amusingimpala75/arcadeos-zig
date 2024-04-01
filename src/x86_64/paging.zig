@@ -33,13 +33,9 @@ pub fn initKernelPaging() void {
     };
 
     const pml4 = PageTable.alloc(physical_mem_manager);
-    kernel.main_serial.print("new pml4 at 0x{X}\n", .{pml4.physicalAddr()});
     pml4.initPML4();
 
-    kernel.main_serial.print("hhdm starts at 0x{X}\n", .{hhdm_start});
-
     const kernel_location = kernel_loc_req.response orelse @panic("bootloader did not provide kernel location");
-    kernel.main_serial.print("kernel start..length: 0x{X}..0x{X}\n", .{ kernel_location.physical_base, physical_mem_manager.klen });
 
     // Map the kernel as well again to the addr (> 0xFFFFFFFF80000000) provided by the bootloader
     map(
@@ -119,7 +115,6 @@ pub fn initKernelPaging() void {
 
     pml4.load();
 
-    kernel.terminal.print("successfully transitioned to our paging\n", .{});
     // TODO re-write map/unmap/resolve code
     asm volatile ("hlt");
 }
@@ -279,7 +274,6 @@ pub const PageTable = struct {
             @as(usize, @intCast(recurse)) << 30 |
             @as(usize, @intCast(recurse)) << 21 |
             @as(usize, @intCast(recurse)) << 12;
-        kernel.terminal.print("0x{X}\n", .{addr});
         return @ptrFromInt(addr);
     }
 
@@ -515,15 +509,6 @@ const handler_fmt =
 var handler_buf: [handler_fmt.len + @sizeOf(IDT.ISF) * 8:0]u8 = undefined;
 
 fn pageFaultHandler(isf: *IDT.ISF) void {
-    // debug location of rsp
-    {
-        var val: usize = 0;
-        asm volatile (
-            \\mov %rsp, %[addr]
-            : [addr] "={rax}" (val),
-        );
-        kernel.main_serial.print("rsp is 0x{X} lower than start\n", .{kernel.stack_start - val});
-    }
     var cr2 = blk: {
         var val: usize = 0;
         asm volatile (
@@ -533,7 +518,6 @@ fn pageFaultHandler(isf: *IDT.ISF) void {
         break :blk val;
     };
     kernel.main_serial.print("page fault at 0x{X} because 0x{X}!\n", .{ cr2, isf.err });
-    // TODO why is this crashing?
     var msg = std.fmt.bufPrintZ(&handler_buf, handler_fmt, .{ isf.err, cr2, isf }) catch {
         @panic("Page fault, but could not format the crash message!");
     };
