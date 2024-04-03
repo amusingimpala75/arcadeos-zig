@@ -16,7 +16,7 @@ export var kernel_loc_req = limine.KernelAddressRequest{};
 pub fn initKernelPaging() void {
     hhdm_start = (hhdm_start_request.response orelse @panic("Could not find where HHDM begins")).offset;
 
-    physical_mem_manager = PhysicalMemoryManager.setupPhysicalMemoryManager(false) catch |err| {
+    physical_mem_manager = PhysicalMemoryManager.setupPhysicalMemoryManager(hhdm_start, false) catch |err| {
         if (err == error.LimineMemMapMissing) {
             @panic("Limine did not provide a memory map, maybe try rebooting?");
         } else if (err == error.NotEnoughPhysicalMemory) {

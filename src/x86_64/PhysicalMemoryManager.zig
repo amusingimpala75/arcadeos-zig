@@ -453,7 +453,7 @@ fn pmmBlockSize(mem_size: usize) usize {
 }
 
 /// Set up the PMM, returning it not success or otherwise an error
-pub fn setupPhysicalMemoryManager(debug: bool) !*PhysicalMemoryManager {
+pub fn setupPhysicalMemoryManager(hhdm_start: usize, debug: bool) !*PhysicalMemoryManager {
     const response = mem_map_request.response orelse return error.LimineMemMapMissing;
     // Print out all of the mem map entries
     for (response.entries()) |entry| {
@@ -512,7 +512,7 @@ pub fn setupPhysicalMemoryManager(debug: bool) !*PhysicalMemoryManager {
             blockFromAddr(entry.length) > pmm_block_size)
         {
             break :blk PhysicalMemoryManager.initAt(
-                entry.base,
+                hhdm_start + entry.base,
                 block_count,
                 klen,
                 debug,
@@ -545,8 +545,9 @@ pub fn setupPhysicalMemoryManager(debug: bool) !*PhysicalMemoryManager {
 
     kernel.main_serial.print("pmm at 0x{X}, len 0x{X}\n", .{ @intFromPtr(pmm), pmm_block_size });
 
+    const pmm_paddr = @intFromPtr(pmm) - hhdm_start;
     // map this as well
-    for (blockFromAddr(@intFromPtr(pmm))..blockFromAddr(@intFromPtr(pmm)) + pmm_block_size) |i| {
+    for (blockFromAddr(pmm_paddr)..blockFromAddr(pmm_paddr) + pmm_block_size) |i| {
         pmm.allocBlocksAt(i, 0) catch {
             @panic("error mapping allocator's pages as in use");
         };
