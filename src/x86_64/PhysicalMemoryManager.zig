@@ -256,7 +256,10 @@ fn mergeBlocks(self: *PhysicalMemoryManager, block: usize) void {
     }
 }
 
-pub fn freeBlock(self: *PhysicalMemoryManager, block: usize) void {
+pub fn freeBlock(self: *PhysicalMemoryManager, block: usize) !void {
+    if (block >= self.block_count) {
+        return error.NotManaged;
+    }
     // Mark the BlockEntry as free
     self.getBlock(block).setFree(true);
 
@@ -367,6 +370,9 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
 }
 
 fn allocBlocksAt(self: *PhysicalMemoryManager, block: usize, order: u3) !void {
+    if (block >= self.block_count) {
+        return error.NotManaged;
+    }
     // check if the block is at the required level
     // if so, remove it thusly. Otherwise, set it split it down to the correct size
     var b = self.getBlock(block);
