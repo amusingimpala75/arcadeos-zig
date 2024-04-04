@@ -102,9 +102,6 @@ pub fn initKernelPaging() void {
     }
 
     pml4.load();
-
-    // TODO re-write map/unmap/resolve code
-    asm volatile ("hlt");
 }
 
 /// Do not call after initial setup; see PageTable.map instead
@@ -149,12 +146,14 @@ fn map(phys: usize, virt: usize, len: usize, pmm: *PhysicalMemoryManager, pml4: 
 
 const page_size = 4096;
 
-/// Limine loads us at or above 0xFFFFFFFF80000000,
-/// so we reserve the entry just below that respective pml4 entry
-/// for the recursive page table mapping scheme.
-const recurse: u9 = @as(u9, @truncate(0xffffffff80000000 >> 39)) - 1;
-
 pub const PageTable = struct {
+    /// Limine loads us at or above 0xFFFFFFFF80000000,
+    /// so we reserve the entry just below that respective pml4 entry
+    /// for the recursive page table mapping scheme.
+    const recurse: u9 = @as(u9, @truncate(0xffffffff80000000 >> 39)) - 1;
+
+    const offset_bitmask = (1 << 9) - 1; // 511
+
     pub const Entry = packed struct {
         present: bool,
         writable: bool,
@@ -289,197 +288,176 @@ pub const PageTable = struct {
         return @ptrFromInt(addr);
     }
 
-    //    pub fn resolve(virt: anytype) !usize {
-    //        const vaddr: usize = @intFromPtr(virt);
-    //
-    //        const pml4_offset = vaddr >> 39;
-    //        const pml3_offset = vaddr >> 30 & recurse;
-    //        const pml2_offset = vaddr >> 21 & recurse;
-    //        const pml1_offset = vaddr >> 12 & recurse;
-    //        const page_offset = vaddr & 4095;
-    //
-    //        {
-    //            const pml4: *PageTable = pml4_recurse();
-    //            const entry = &pml4.entries[pml4_offset].pml_entry;
-    //            if (!entry.present) {
-    //                return error.Unmapped;
-    //            }
-    //        }
-    //
-    //        {
-    //            const pml3: *PageTable = pml3_recurse(pml4_offset);
-    //            const entry = &pml3.entries[pml3_offset];
-    //            if (!entry.present) {
-    //                return error.Unmapped;
-    //            }
-    //            if (entry.large_page) {
-    //                const addr: usize = @intCast(entry.physical_addr_page);
-    //                return addr << 30 |
-    //                    (vaddr & ((@as(usize, 1) << 30) - 1));
-    //            }
-    //        }
-    //
-    //        {
-    //            const pml2: *PageTable = pml2_recurse(pml4_offset, pml3_offset);
-    //            const entry = &pml2.entries[pml2_offset];
-    //            if (!entry.present) {
-    //                return error.Unmapped;
-    //            }
-    //            if (entry.large_page) {
-    //                const addr: usize = @intCast(entry.physical_addr_page);
-    //                return addr << 21 |
-    //                    (vaddr & ((@as(usize, 1) << 21) - 1));
-    //            }
-    //        }
-    //
-    //        {
-    //            const pml1: *PageTable = pml1_recurse(pml4_offset, pml3_offset, pml2_offset);
-    //            const entry = &pml1.entries[pml1_offset];
-    //            if (!entry.present) {
-    //                return error.Unmapped;
-    //            }
-    //            const addr: usize = @intCast(entry.physical_addr_page);
-    //            return addr << 12 | page_offset;
-    //        }
-    //    }
-    //
-    //    // Requires page mapping to be already set up
-    //    pub fn map(addr: usize, entry: Entry) !void {
-    //        if (true)
-    //            unreachable; // TODO rewrite
-    //        const pml4_offset = addr >> 39;
-    //        const pml3_offset = addr >> 30 & recurse;
-    //        const pml2_offset = addr >> 21 & recurse;
-    //        const pml1_offset = addr >> 12 & recurse;
-    //
-    //        const pml4: *PageTable = pml4_recurse();
-    //
-    //        if (!pml4.entries[pml4_offset].present) {
-    //            const block = try physical_mem_manager.allocBlocks(0);
-    //            const pml_entry = Entry{
-    //                .present = true,
-    //                .writable = true,
-    //                .user_accessible = false,
-    //                .write_through_cache = false,
-    //                .large_page = false,
-    //                .addr = block,
-    //                .no_execute = true,
-    //            };
-    //            pml4.entries[pml4_offset] = pml_entry;
-    //            const table: *PageTable = pml3_recurse(pml4_offset);
-    //            table[recurse] = pml_entry;
-    //        }
-    //
-    //        const pml3: *PageTable = pml3_recurse(pml4_offset);
-    //
-    //        if (!pml3.entries[pml3_offset].present) {
-    //            const block = try physical_mem_manager.allocBlocks(0);
-    //            const pml_entry = Entry{
-    //                .present = true,
-    //                .writable = true,
-    //                .user_accessible = false,
-    //                .write_through_cache = false,
-    //                .large_page = false,
-    //                .addr = block,
-    //                .no_execute = true,
-    //            };
-    //            pml3.entries[pml3_offset] = pml_entry;
-    //            const table: *PageTable = pml2_recurse(pml4_offset, pml3_offset);
-    //            table[recurse] = pml_entry;
-    //        }
-    //
-    //        const pml2: *PageTable = pml2_recurse(pml4_offset, pml3_offset);
-    //
-    //        if (!pml2.entries[pml2_offset].present) {
-    //            const block = try physical_mem_manager.allocBlocks(0);
-    //            const pml_entry = Entry{
-    //                .present = true,
-    //                .writable = true,
-    //                .user_accessible = false,
-    //                .write_through_cache = false,
-    //                .large_page = false,
-    //                .addr = block,
-    //                .no_execute = true,
-    //            };
-    //            pml2.entries[pml2_offset] = pml_entry;
-    //            const table: *PageTable = pml1_recurse(pml4_offset, pml3_offset, pml2_offset);
-    //            table[recurse] = pml_entry;
-    //        }
-    //
-    //        const pml1: *PageTable = pml1_recurse(pml4_offset, pml3_offset, pml2_offset);
-    //        if (pml1.entries[pml1_offset].present) {
-    //            return error.AlreadyMapped;
-    //        }
-    //        pml1.entries[pml1_offset] = entry;
-    //    }
-    //
-    //    pub fn unmap(addr: usize) !void {
-    //        // ensure the address is mapped
-    //        _ = try PageTable.resolve(addr);
-    //        const pml4_offset = addr >> 39;
-    //        const pml3_offset = addr >> 30 & recurse;
-    //        const pml2_offset = addr >> 21 & recurse;
-    //        const pml1_offset = addr >> 12 & recurse;
-    //
-    //        // Remove the mapping from PML1
-    //        // if the mapping was the last one, free this PML1
-    //        // and remove it from PML2, continuing recursively
-    //        {
-    //            const pml1 = pml1_recurse(pml4_offset, pml3_offset, pml2_offset);
-    //            pml1.entries[pml1_offset].pml_entry.present = false;
-    //
-    //            var found = false;
-    //            for (0..recurse) |i| {
-    //                if (pml1.entries[i].present) {
-    //                    found = true;
-    //                    break;
-    //                }
-    //            }
-    //            if (found) {
-    //                return;
-    //            }
-    //            physical_mem_manager.freeBlock(pml1.entries[recurse].pml_entry.addr);
-    //        }
-    //
-    //        {
-    //            const pml2 = pml2_recurse(pml4_offset, pml3_offset);
-    //            pml2.entries[pml2_offset].pml_entry.present = false;
-    //
-    //            var found = false;
-    //            for (0..recurse) |i| {
-    //                if (pml2.entries[i].present) {
-    //                    found = true;
-    //                    break;
-    //                }
-    //            }
-    //            if (found) {
-    //                return;
-    //            }
-    //            physical_mem_manager.freeBlock(pml2.entries[recurse].pml_entry.addr);
-    //        }
-    //
-    //        {
-    //            const pml3 = pml3_recurse(pml4_offset);
-    //            pml3.entries[pml3_offset].pml_entry.present = false;
-    //
-    //            var found = false;
-    //            for (0..recurse) |i| {
-    //                if (pml3.entries[i].present) {
-    //                    found = true;
-    //                    break;
-    //                }
-    //            }
-    //            if (found) {
-    //                return;
-    //            }
-    //            physical_mem_manager.freeBlock(pml3.entries[recurse].pml_entry.addr);
-    //        }
-    //
-    //        {
-    //            const pml4 = pml4_recurse();
-    //            pml4.entires[pml4_offset].pml_entry.present = false;
-    //        }
-    //    }
+    // TODO: support large pages by returning early
+    pub fn resolve(vaddr: usize) !usize {
+        const pml4_offset = vaddr >> 39 & offset_bitmask;
+        const pml3_offset = vaddr >> 30 & offset_bitmask;
+        const pml2_offset = vaddr >> 21 & offset_bitmask;
+        const pml1_offset = vaddr >> 12 & offset_bitmask;
+        const page_offset = vaddr & 4095;
+
+        {
+            const pml4: *PageTable = pml4Recurse();
+            if (!pml4.entries[pml4_offset].present) {
+                return error.Unmapped;
+            }
+        }
+
+        {
+            const pml3: *PageTable = pml3Recurse(pml4_offset);
+            if (!pml3.entries[pml3_offset].present) {
+                return error.Unmapped;
+            }
+        }
+
+        {
+            const pml2: *PageTable = pml2Recurse(pml4_offset, pml3_offset);
+            if (!pml2.entries[pml2_offset].present) {
+                return error.Unmapped;
+            }
+        }
+
+        {
+            const pml1: *PageTable = pml1Recurse(pml4_offset, pml3_offset, pml2_offset);
+            const entry = &pml1.entries[pml1_offset];
+            if (!entry.present) {
+                return error.Unmapped;
+            }
+            const addr: usize = @intCast(entry.physical_addr_page);
+            return addr << 12 | page_offset;
+        }
+    }
+
+    // Requires page mapping to be already set up
+    // TODO support large pages and caller-defined entry configuration
+    pub fn map(vaddr: usize, paddr: usize) !void {
+        const pml4_offset = vaddr >> 39 & offset_bitmask;
+        const pml3_offset = vaddr >> 30 & offset_bitmask;
+        const pml2_offset = vaddr >> 21 & offset_bitmask;
+        const pml1_offset = vaddr >> 12 & offset_bitmask;
+
+        const pml4: *PageTable = pml4Recurse();
+
+        if (!pml4.entries[pml4_offset].present) {
+            const block = try physical_mem_manager.allocBlocks(0);
+            pml4.entries[pml4_offset] = Entry{
+                .present = true,
+                .writable = true,
+                .user_accessible = false,
+                .write_through_cache = true,
+                .disable_cache = true,
+                .large_page = false,
+                .global = false,
+                .physical_addr_page = @intCast(block),
+                .no_execute = false,
+            };
+        }
+
+        const pml3: *PageTable = pml3Recurse(pml4_offset);
+
+        if (!pml3.entries[pml3_offset].present) {
+            const block = try physical_mem_manager.allocBlocks(0);
+            pml3.entries[pml3_offset] = Entry{
+                .present = true,
+                .writable = true,
+                .user_accessible = false,
+                .write_through_cache = true,
+                .disable_cache = true,
+                .large_page = false,
+                .global = false,
+                .physical_addr_page = @intCast(block),
+                .no_execute = false,
+            };
+        }
+
+        const pml2: *PageTable = pml2Recurse(pml4_offset, pml3_offset);
+
+        if (!pml2.entries[pml2_offset].present) {
+            const block = try physical_mem_manager.allocBlocks(0);
+            pml2.entries[pml2_offset] = Entry{
+                .present = true,
+                .writable = true,
+                .user_accessible = false,
+                .write_through_cache = true,
+                .disable_cache = true,
+                .large_page = false,
+                .global = false,
+                .physical_addr_page = @intCast(block),
+                .no_execute = false,
+            };
+        }
+
+        const pml1: *PageTable = pml1Recurse(pml4_offset, pml3_offset, pml2_offset);
+        if (pml1.entries[pml1_offset].present) {
+            return error.AlreadyMapped;
+        }
+        pml1.entries[pml1_offset] = Entry{
+            .present = true,
+            .writable = true,
+            .user_accessible = false,
+            .write_through_cache = true,
+            .disable_cache = true,
+            .large_page = false,
+            .global = false,
+            .physical_addr_page = @intCast(paddr >> 12),
+            .no_execute = false,
+        };
+    }
+
+    pub fn unmap(addr: usize) !void {
+        // ensure the address is mapped
+        _ = try PageTable.resolve(addr);
+        const pml4_offset = addr >> 39;
+        const pml3_offset = addr >> 30 & recurse;
+        const pml2_offset = addr >> 21 & recurse;
+        const pml1_offset = addr >> 12 & recurse;
+
+        // Remove the mapping from PML1
+        // if this was not the last mapping in the PML1, return
+        // otherwise, free the PML1, set its entry in the PML2 to be
+        // not present, and check again at this level, continuing up to PML4
+        {
+            const pml1 = pml1Recurse(pml4_offset, pml3_offset, pml2_offset);
+            pml1.entries[pml1_offset].present = false;
+
+            for (0..recurse) |i| {
+                if (pml1.entries[i].present) {
+                    return;
+                }
+            }
+        }
+
+        {
+            const pml2 = pml2Recurse(pml4_offset, pml3_offset);
+            pml2.entries[pml2_offset].present = false;
+            try physical_mem_manager.freeBlock(pml2.entries[pml2_offset].physical_addr_page);
+
+            for (0..recurse) |i| {
+                if (pml2.entries[i].present) {
+                    return;
+                }
+            }
+        }
+
+        {
+            const pml3 = pml3Recurse(pml4_offset);
+            pml3.entries[pml3_offset].present = false;
+            try physical_mem_manager.freeBlock(pml3.entries[pml3_offset].physical_addr_page);
+
+            for (0..recurse) |i| {
+                if (pml3.entries[i].present) {
+                    return;
+                }
+            }
+        }
+
+        {
+            const pml4 = pml4Recurse();
+            pml4.entries[pml4_offset].present = false;
+            try physical_mem_manager.freeBlock(pml4.entries[pml4_offset].physical_addr_page);
+        }
+    }
+
     comptime {
         std.debug.assert(@sizeOf(PageTable) == page_size * @sizeOf(u8));
         std.debug.assert(@bitSizeOf(PageTable) == page_size * @bitSizeOf(u8));
