@@ -175,15 +175,31 @@ pub const PageTable = struct {
                 @panic("phys_addr is not 4096 aligned");
             }
 
-            self.present = true;
-            self.writable = true;
-            self.user_accessible = false;
-            self.write_through_cache = true;
-            self.disable_cache = true;
-            self.large_page = false;
-            self.global = false;
-            self.physical_addr_page = @truncate(phys_addr >> 12);
-            self.no_execute = false;
+            self.* = Entry{
+                .present = true,
+                .writable = true,
+                .user_accessible = false,
+                .write_through_cache = true,
+                .disable_cache = true,
+                .large_page = false,
+                .global = false,
+                .physical_addr_page = @truncate(phys_addr >> 12),
+                .no_execute = false,
+            };
+        }
+
+        pub fn setAsUnavailable(self: *Entry) void {
+            self.* = Entry{
+                .present = false,
+                .writable = false,
+                .user_accessible = false,
+                .write_through_cache = true,
+                .disable_cache = true,
+                .large_page = false,
+                .global = false,
+                .physical_addr_page = 0xdeadbeef,
+                .no_execute = true,
+            };
         }
 
         comptime {
@@ -231,20 +247,8 @@ pub const PageTable = struct {
         // so we need to add the hhdm start
         var self: *PageTable = @ptrFromInt((blk << 12) + hhdm_start);
 
-        var default_entry = Entry{
-            .present = false,
-            .writable = false,
-            .user_accessible = false,
-            .write_through_cache = true,
-            .disable_cache = true,
-            .large_page = false,
-            .global = false,
-            .physical_addr_page = 0xdeadbeef,
-            .no_execute = true,
-        };
-
         for (&self.entries) |*entry| {
-            entry.* = default_entry;
+            entry.setAsUnavailable();
         }
 
         return self;
@@ -340,68 +344,28 @@ pub const PageTable = struct {
 
         if (!pml4.entries[pml4_offset].present) {
             const block = try physical_mem_manager.allocBlocks(0);
-            pml4.entries[pml4_offset] = Entry{
-                .present = true,
-                .writable = true,
-                .user_accessible = false,
-                .write_through_cache = true,
-                .disable_cache = true,
-                .large_page = false,
-                .global = false,
-                .physical_addr_page = @intCast(block),
-                .no_execute = false,
-            };
+            pml4.entries[pml4_offset].setAsKernelRWX(@intCast(block << 12));
         }
 
         const pml3: *PageTable = pml3Recurse(pml4_offset);
 
         if (!pml3.entries[pml3_offset].present) {
             const block = try physical_mem_manager.allocBlocks(0);
-            pml3.entries[pml3_offset] = Entry{
-                .present = true,
-                .writable = true,
-                .user_accessible = false,
-                .write_through_cache = true,
-                .disable_cache = true,
-                .large_page = false,
-                .global = false,
-                .physical_addr_page = @intCast(block),
-                .no_execute = false,
-            };
+            pml3.entries[pml3_offset].setAsKernelRWX(@intCast(block << 12));
         }
 
         const pml2: *PageTable = pml2Recurse(pml4_offset, pml3_offset);
 
         if (!pml2.entries[pml2_offset].present) {
             const block = try physical_mem_manager.allocBlocks(0);
-            pml2.entries[pml2_offset] = Entry{
-                .present = true,
-                .writable = true,
-                .user_accessible = false,
-                .write_through_cache = true,
-                .disable_cache = true,
-                .large_page = false,
-                .global = false,
-                .physical_addr_page = @intCast(block),
-                .no_execute = false,
-            };
+            pml2.entries[pml2_offset].setAsKernelRWX(@intCast(block << 12));
         }
 
         const pml1: *PageTable = pml1Recurse(pml4_offset, pml3_offset, pml2_offset);
         if (pml1.entries[pml1_offset].present) {
             return error.AlreadyMapped;
         }
-        pml1.entries[pml1_offset] = Entry{
-            .present = true,
-            .writable = true,
-            .user_accessible = false,
-            .write_through_cache = true,
-            .disable_cache = true,
-            .large_page = false,
-            .global = false,
-            .physical_addr_page = @intCast(paddr >> 12),
-            .no_execute = false,
-        };
+        pml1.entries[pml1_offset].setAsKernelRWX(@intCast(paddr));
     }
 
     pub fn unmap(addr: usize) !void {
@@ -418,7 +382,7 @@ pub const PageTable = struct {
         // not present, and check again at this level, continuing up to PML4
         {
             const pml1 = pml1Recurse(pml4_offset, pml3_offset, pml2_offset);
-            pml1.entries[pml1_offset].present = false;
+            pml1.entries[pml1_offset].setAsUnavailable();
 
             for (0..recurse) |i| {
                 if (pml1.entries[i].present) {
@@ -429,8 +393,8 @@ pub const PageTable = struct {
 
         {
             const pml2 = pml2Recurse(pml4_offset, pml3_offset);
-            pml2.entries[pml2_offset].present = false;
             try physical_mem_manager.freeBlock(pml2.entries[pml2_offset].physical_addr_page);
+            pml2.entries[pml2_offset].setAsUnavailable();
 
             for (0..recurse) |i| {
                 if (pml2.entries[i].present) {
@@ -441,8 +405,8 @@ pub const PageTable = struct {
 
         {
             const pml3 = pml3Recurse(pml4_offset);
-            pml3.entries[pml3_offset].present = false;
             try physical_mem_manager.freeBlock(pml3.entries[pml3_offset].physical_addr_page);
+            pml3.entries[pml3_offset].setAsUnavailable();
 
             for (0..recurse) |i| {
                 if (pml3.entries[i].present) {
@@ -452,9 +416,8 @@ pub const PageTable = struct {
         }
 
         {
-            const pml4 = pml4Recurse();
-            pml4.entries[pml4_offset].present = false;
             try physical_mem_manager.freeBlock(pml4.entries[pml4_offset].physical_addr_page);
+            pml4.entries[pml4_offset].setAsUnavailable();
         }
     }
 
