@@ -26,8 +26,10 @@ pub fn initKernelPaging() void {
         }
     };
 
-    const pml4 = PageTable.alloc(physical_mem_manager);
-    pml4.initPML4();
+        const pml4 = PageTable.alloc() catch {
+            @panic("PMM out of memory for page table allocations!");
+        };
+        pml4.initPML4();
 
     const kernel_location = kernel_loc_req.response orelse @panic("bootloader did not provide kernel location");
 
@@ -238,19 +240,27 @@ pub const PageTable = struct {
         );
     }
 
-    pub fn alloc(pmm: *PhysicalMemoryManager) *PageTable {
-        const blk = pmm.allocBlocks(0) catch {
-            @panic("Could not allocate space for page table");
-        };
+    pub fn alloc() !*PageTable {
+        const blk = try physical_mem_manager.allocBlocks(0);
 
         // The pmm returns the physical addr of the block,
         // so we need to add the hhdm start
         var self: *PageTable = @ptrFromInt((blk << 12) + hhdm_start);
 
+        self.init();
+
+        return self;
+    }
+
+    pub fn init(self: *PageTable) void {
         for (&self.entries) |*entry| {
             entry.setAsUnavailable();
         }
+    }
 
+    fn allocNoInit() !*PageTable {
+        const blk = try physical_mem_manager.allocBlocks(0);
+        var self: *PageTable = @ptrFromInt((blk << 12) + hhdm_start);
         return self;
     }
 
@@ -343,29 +353,32 @@ pub const PageTable = struct {
         const pml4: *PageTable = pml4Recurse();
 
         if (!pml4.entries[pml4_offset].present) {
-            const block = try physical_mem_manager.allocBlocks(0);
-            pml4.entries[pml4_offset].setAsKernelRWX(@intCast(block << 12));
+            const t = try PageTable.allocNoInit();
+            pml4.entries[pml4_offset].setAsKernelRWX(t.physicalAddr());
+            pml3Recurse(pml4_offset).init();
         }
 
         const pml3: *PageTable = pml3Recurse(pml4_offset);
 
         if (!pml3.entries[pml3_offset].present) {
-            const block = try physical_mem_manager.allocBlocks(0);
-            pml3.entries[pml3_offset].setAsKernelRWX(@intCast(block << 12));
+            const t = try PageTable.allocNoInit();
+            pml3.entries[pml3_offset].setAsKernelRWX(t.physicalAddr());
+            pml2Recurse(pml4_offset, pml3_offset).init();
         }
 
         const pml2: *PageTable = pml2Recurse(pml4_offset, pml3_offset);
 
         if (!pml2.entries[pml2_offset].present) {
-            const block = try physical_mem_manager.allocBlocks(0);
-            pml2.entries[pml2_offset].setAsKernelRWX(@intCast(block << 12));
+            const t = try PageTable.allocNoInit();
+            pml2.entries[pml2_offset].setAsKernelRWX(t.physicalAddr());
+            pml1Recurse(pml4_offset, pml3_offset, pml2_offset).init();
         }
 
         const pml1: *PageTable = pml1Recurse(pml4_offset, pml3_offset, pml2_offset);
         if (pml1.entries[pml1_offset].present) {
             return error.AlreadyMapped;
         }
-        pml1.entries[pml1_offset].setAsKernelRWX(@intCast(paddr));
+        pml1.entries[pml1_offset].setAsKernelRWX(paddr);
     }
 
     pub fn unmap(addr: usize) !void {
