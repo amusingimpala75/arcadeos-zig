@@ -26,20 +26,35 @@ pub fn initKernelPaging() void {
         }
     };
 
+    {
         const pml4 = PageTable.alloc() catch {
             @panic("PMM out of memory for page table allocations!");
         };
         pml4.initPML4();
 
+        mapNecessaryBeforeLoad(pml4) catch {
+            @panic("Error mapping necessary parts prior to loading kernel page table");
+        };
+
+        pml4.load();
+    }
+
+    const addr = (physical_mem_manager.allocBlocks(0) catch {
+        @panic("foooor");
+    }) << 12;
+    PageTable.pml4Recurse().map(addr, addr) catch {
+        @panic("foor");
+    };
+}
+
+fn mapNecessaryBeforeLoad(pml4: *PageTable) !void {
     const kernel_location = kernel_loc_req.response orelse @panic("bootloader did not provide kernel location");
 
     // Map the kernel as well again to the addr (> 0xFFFFFFFF80000000) provided by the bootloader
-    map(
-        kernel_location.physical_base,
+    try pml4.mapAll(
         kernel_location.virtual_base,
+        kernel_location.physical_base,
         physical_mem_manager.klen,
-        physical_mem_manager,
-        pml4,
     );
 
     // Map the stack (may not be 4096-aligned)
@@ -49,12 +64,10 @@ pub fn initKernelPaging() void {
         const aligned = kernel.stack_start & ((@as(usize, 1) << 12) - 1) == 0;
         const stack_virt_start = (kernel.stack_start - kernel.stack_req.stack_size) & ~((@as(usize, 1) << 12) - 1);
         const stack_phys_start = if (stack_virt_start < hhdm_start) stack_virt_start else stack_virt_start - hhdm_start;
-        map(
-            stack_phys_start,
+        try pml4.mapAll(
             stack_virt_start,
+            stack_phys_start,
             if (aligned) kernel.stack_req.stack_size else kernel.stack_req.stack_size + page_size,
-            physical_mem_manager,
-            pml4,
         );
     }
 
@@ -81,12 +94,10 @@ pub fn initKernelPaging() void {
             break :blk @as(usize, @intCast(pml1.entries[pml1_offset].physical_addr_page)) << 12;
         };
 
-        map(
-            fb_phys_addr,
+        try pml4.mapAll(
             fb_virt_addr,
+            fb_phys_addr,
             kernel.main_framebuffer.height() * kernel.main_framebuffer.width() * (kernel.main_framebuffer.bpp / 8),
-            physical_mem_manager,
-            pml4,
         );
     }
 
@@ -94,55 +105,11 @@ pub fn initKernelPaging() void {
     {
         const pmm_virt = @intFromPtr(physical_mem_manager);
         const pmm_phys = if (pmm_virt > hhdm_start) pmm_virt - hhdm_start else pmm_virt;
-        map(
-            pmm_phys,
+        try pml4.mapAll(
             pmm_virt,
+            pmm_phys,
             physical_mem_manager.byteSize(),
-            physical_mem_manager,
-            pml4,
         );
-    }
-
-    pml4.load();
-}
-
-/// Do not call after initial setup; see PageTable.map instead
-/// Maps a `len` length block of bytes at `virt` to `phys`.
-/// Needs the physical memory allocator and pml4 page table
-fn map(phys: usize, virt: usize, len: usize, pmm: *PhysicalMemoryManager, pml4: *PageTable) void {
-    var i: usize = 0;
-    while (i < len) : (i += page_size) {
-        const vaddr = virt + i;
-        const pml4_offset: u9 = @truncate(vaddr >> 39);
-        const pml3_offset: u9 = @truncate(vaddr >> 30);
-        const pml2_offset: u9 = @truncate(vaddr >> 21);
-        const pml1_offset: u9 = @truncate(vaddr >> 12);
-
-        const pml3: *PageTable = if (pml4.entries[pml4_offset].present)
-            @ptrFromInt((pml4.entries[pml4_offset].physical_addr_page << 12) + hhdm_start)
-        else blk: {
-            const val = PageTable.alloc(pmm);
-            pml4.entries[pml4_offset].setAsKernelRWX(val.physicalAddr());
-            break :blk val;
-        };
-
-        const pml2: *PageTable = if (pml3.entries[pml3_offset].present)
-            @ptrFromInt((pml3.entries[pml3_offset].physical_addr_page << 12) + hhdm_start)
-        else blk: {
-            const val = PageTable.alloc(pmm);
-            pml3.entries[pml3_offset].setAsKernelRWX(val.physicalAddr());
-            break :blk val;
-        };
-
-        const pml1: *PageTable = if (pml2.entries[pml2_offset].present)
-            @ptrFromInt((pml2.entries[pml2_offset].physical_addr_page << 12) + hhdm_start)
-        else blk: {
-            const val = PageTable.alloc(pmm);
-            pml2.entries[pml2_offset].setAsKernelRWX(val.physicalAddr());
-            break :blk val;
-        };
-
-        pml1.entries[pml1_offset].setAsKernelRWX(phys + i);
     }
 }
 
@@ -213,7 +180,19 @@ pub const PageTable = struct {
     entries: [512]Entry,
 
     pub fn physicalAddr(self: *PageTable) u52 {
+        if (self == PageTable.pml4Recurse()) {
+            return @intCast(self.entries[recurse].physical_addr_page << 12);
+        }
         return @truncate(@intFromPtr(self) - hhdm_start);
+    }
+
+    fn getCr3() usize {
+        var val: usize = 0;
+        asm volatile (
+            \\mov %cr3, %[addr]
+            : [addr] "={rax}" (val),
+        );
+        return val;
     }
 
     /// Must only be called on PML4 PageTable
@@ -222,14 +201,7 @@ pub const PageTable = struct {
         // Get our addres fromm our recursive entry
         const phys_addr = @as(usize, @intCast(self.entries[recurse].physical_addr_page)) << 12;
         // Retrive the old value of cr3
-        const old_cr3 = blk: {
-            var val: usize = 0;
-            asm volatile (
-                \\mov %cr3, %[addr]
-                : [addr] "={rax}" (val),
-            );
-            break :blk val;
-        };
+        const old_cr3 = getCr3();
         // Preserve the lower 12 bits of the old cr3
         const new_cr3 = phys_addr | (old_cr3 & 0b111111111111);
         // Load this into the cr3 register
@@ -262,6 +234,11 @@ pub const PageTable = struct {
         const blk = try physical_mem_manager.allocBlocks(0);
         var self: *PageTable = @ptrFromInt((blk << 12) + hhdm_start);
         return self;
+    }
+
+    fn isLoaded(self: *PageTable) bool {
+        const bitmask: usize = ~@as(usize, 0b111111111111);
+        return getCr3() & bitmask == self.physicalAddr();
     }
 
     pub fn initPML4(self: *PageTable) void {
@@ -303,6 +280,7 @@ pub const PageTable = struct {
     }
 
     // TODO: support large pages by returning early
+    // TODO: resolveUnloaded
     pub fn resolve(vaddr: usize) !usize {
         const pml4_offset = vaddr >> 39 & offset_bitmask;
         const pml3_offset = vaddr >> 30 & offset_bitmask;
@@ -342,15 +320,60 @@ pub const PageTable = struct {
         }
     }
 
+    pub fn mapAll(pml4: *PageTable, vaddr: usize, paddr: usize, len: usize) !void {
+        var i: usize = 0;
+        while (i < len) : (i += page_size) {
+            try pml4.map(vaddr + i, paddr + i);
+        }
+    }
+
+    /// Do not call after initial setup; see PageTable.map instead
+    /// Maps a `len` length block of bytes at `virt` to `phys`.
+    /// Needs the physical memory allocator and pml4 page table
+    fn mapUnloaded(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
+        const pml4_offset: u9 = @truncate(vaddr >> 39);
+        const pml3_offset: u9 = @truncate(vaddr >> 30);
+        const pml2_offset: u9 = @truncate(vaddr >> 21);
+        const pml1_offset: u9 = @truncate(vaddr >> 12);
+
+        const pml3: *PageTable = if (pml4.entries[pml4_offset].present)
+            @ptrFromInt((pml4.entries[pml4_offset].physical_addr_page << 12) + hhdm_start)
+        else blk: {
+            const val = try PageTable.alloc();
+            pml4.entries[pml4_offset].setAsKernelRWX(val.physicalAddr());
+            break :blk val;
+        };
+
+        const pml2: *PageTable = if (pml3.entries[pml3_offset].present)
+            @ptrFromInt((pml3.entries[pml3_offset].physical_addr_page << 12) + hhdm_start)
+        else blk: {
+            const val = try PageTable.alloc();
+            pml3.entries[pml3_offset].setAsKernelRWX(val.physicalAddr());
+            break :blk val;
+        };
+
+        const pml1: *PageTable = if (pml2.entries[pml2_offset].present)
+            @ptrFromInt((pml2.entries[pml2_offset].physical_addr_page << 12) + hhdm_start)
+        else blk: {
+            const val = try PageTable.alloc();
+            pml2.entries[pml2_offset].setAsKernelRWX(val.physicalAddr());
+            break :blk val;
+        };
+
+        pml1.entries[pml1_offset].setAsKernelRWX(paddr);
+    }
+
     // Requires page mapping to be already set up
     // TODO support large pages and caller-defined entry configuration
-    pub fn map(vaddr: usize, paddr: usize) !void {
+    pub fn map(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
+        if (!pml4.isLoaded()) {
+            try pml4.mapUnloaded(vaddr, paddr);
+            return;
+        }
         const pml4_offset = vaddr >> 39 & offset_bitmask;
         const pml3_offset = vaddr >> 30 & offset_bitmask;
         const pml2_offset = vaddr >> 21 & offset_bitmask;
         const pml1_offset = vaddr >> 12 & offset_bitmask;
-
-        const pml4: *PageTable = pml4Recurse();
 
         if (!pml4.entries[pml4_offset].present) {
             const t = try PageTable.allocNoInit();
