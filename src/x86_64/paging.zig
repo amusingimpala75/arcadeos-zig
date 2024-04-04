@@ -370,6 +370,8 @@ pub const PageTable = struct {
             try pml4.mapUnloaded(vaddr, paddr);
             return;
         }
+        defer pml4.load(); // always reload CR3 until targeted TLB flushing is implemented
+
         const pml4_offset = vaddr >> 39 & offset_bitmask;
         const pml3_offset = vaddr >> 30 & offset_bitmask;
         const pml2_offset = vaddr >> 21 & offset_bitmask;
@@ -404,9 +406,11 @@ pub const PageTable = struct {
         pml1.entries[pml1_offset].setAsKernelRWX(paddr);
     }
 
-    pub fn unmap(addr: usize) !void {
+    // TODO unmapUnloaded
+    pub fn unmap(pml4: *PageTable, addr: usize) !void {
         // ensure the address is mapped
         _ = try PageTable.resolve(addr);
+        defer pml4.load(); // always reload CR3 until targeted TLB flushing is implemented
         const pml4_offset = addr >> 39;
         const pml3_offset = addr >> 30 & recurse;
         const pml2_offset = addr >> 21 & recurse;
