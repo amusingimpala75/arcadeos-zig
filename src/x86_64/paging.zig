@@ -38,13 +38,6 @@ pub fn initKernelPaging() void {
 
         pml4.load();
     }
-
-    const addr = (physical_mem_manager.allocBlocks(0) catch {
-        @panic("foooor");
-    }) << 12;
-    PageTable.pml4Recurse().map(addr, addr) catch {
-        @panic("foor");
-    };
 }
 
 fn mapNecessaryBeforeLoad(pml4: *PageTable) !void {
