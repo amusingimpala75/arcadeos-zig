@@ -7,30 +7,59 @@ const kernel = @import("../kernel.zig");
 const assembly = @import("assembly.zig");
 const GDT = @import("GDT.zig");
 
+/// Interrupt Descriptor Table
+///
+/// Holds entries for the entire set of interrupts
+/// possible, including stubs for unregistered ones
 var idt: [256]Entry align(0x10) = undefined;
+/// IDT pointer - data structure the CPU uses
+/// to know where to find the IDT
 var idtr: Descriptor = .{
     .limit = @sizeOf(@TypeOf(idt)) - 1,
     .base = undefined,
 };
 
+/// An entry in the IDT
 const Entry = packed struct {
+    /// The offset in the segment of the interrupt sub-routine
     offset_low: u16,
-    selector: u16,
-    ist: u8,
+    /// the segment selector - we just always make it the code selector
+    selector: u16 = GDT.kernel_code_offset,
+    /// Index of the interrupt stack table
+    /// for now, we ignore that and set it to '0' to use no
+    /// interrupt stack table, ie just continure where we left off
+    ist: u3 = 0,
+    reserved1: u5 = 0,
+    /// 0xE = interrupt, 0xF = trap
     type_attr: u8,
+    /// see `offset_low`
     offset_mid: u16,
+    /// see `offset_low`
     offset_high: u32,
-    zero: u32,
+    reserved2: u32 = 0,
 };
 
+/// CPU structure to find the IDT.
+///
+/// see the comment on GDT.Descriptor for why
+/// extern struct instead of packed struct
 const Descriptor = extern struct {
     limit: u16 align(1),
     base: u64 align(1),
 };
 
+/// list of the handler to be run in the caase of an interrupt
+/// non-assigned ones are stubbed with a defult to just tell us
+/// a descriptor for the interrupt signaled
 var exception_handlers: [256]*const ExceptionHandler = [1]*const ExceptionHandler{&exceptionHandlerDefault} ** 256;
+
+/// we have a stub call into our table of exception handlers.
+/// the stub sets up the interrupt stack fame to keep track of
+/// the CPU prior to the interrupt.
 pub const ExceptionHandler = fn (*ISF) void;
 
+/// default exception handler, present if and only if
+/// there is not a registered interrupt at a given gate
 fn exceptionHandlerDefault(isf: *ISF) void {
     inline for (@typeInfo(ISF).Struct.fields) |*field| {
         const val: u64 = @field(isf, field.name);
@@ -69,10 +98,13 @@ fn exceptionHandlerDefault(isf: *ISF) void {
     });
 }
 
+/// called by our exception handler stuber, calls the respective exception handler
 export fn exceptionHandler(isf: *ISF) callconv(.C) void {
     exception_handlers[isf.int](isf);
 }
 
+/// holds the CPU state prior to the interrupt, as well
+/// as some extra information from the CPU
 pub const ISF = packed struct {
     // Set by us
     cr3: u64,
@@ -88,9 +120,13 @@ pub const ISF = packed struct {
     rcx: u64,
     rax: u64,
     rsp: u64,
+    /// The interrupt vector
     int: u64,
     // Set by CPU
-    err: u64, // For exceptions w/o err code we push 0
+    /// error value for the exception
+    /// for exceptions without an error value we push a value of 0
+    /// to make our lives easier on the exiting process
+    err: u64,
     rip: u64,
     cs: u64,
     flags: u64,
@@ -122,8 +158,13 @@ pub const ISF = packed struct {
     }
 };
 
+/// stub that is called at the start of every interrupt
+/// first all of the registers are saved, and kernel data segments
+/// are set. Then the exception handler is called, after which the
+/// CPU state from before the interrupt is resotred, and the
+/// exception is exited
 export fn exceptionStubHandler() callconv(.Naked) void {
-    // Push general purpose registers
+    // Save general purpose registers
     asm volatile (
         \\push %rsp
         \\push %rax
@@ -134,7 +175,7 @@ export fn exceptionStubHandler() callconv(.Naked) void {
         \\push %rsi
         \\push %rdi
     );
-    // Push segment registers
+    // Save segment registers
     asm volatile (
         \\xor %rax,%rax
         \\mov %ds,%rax
@@ -155,11 +196,9 @@ export fn exceptionStubHandler() callconv(.Naked) void {
     // Call exception handler
     asm volatile (
         \\mov %rsp,%rdi
-        //\\push %rsp
         \\call exceptionHandler
-        //\\mov %rax,%rsp // TODO do i need to remove this?
     );
-    // Pop segment registers
+    // Restore segment registers
     asm volatile (
         \\pop %rax
         \\mov %rax,%cr3
@@ -170,7 +209,7 @@ export fn exceptionStubHandler() callconv(.Naked) void {
         \\pop %rax
         \\mov %rax,%ds
     );
-    // Pop general purpose registers
+    // Restore general purpose registers
     asm volatile (
         \\pop %rdi
         \\pop %rsi
@@ -181,11 +220,11 @@ export fn exceptionStubHandler() callconv(.Naked) void {
         \\pop %rax
         \\pop %rsp
     );
-    // Pop what the error was
+    // Clear the error
     asm volatile (
         \\add $8,%rsp
     );
-    // Return from interrupt handler back to stub
+    // Return from interrupt handler
     assembly.enableInterrupts();
     asm volatile (
         \\iretq
@@ -198,6 +237,11 @@ const ExceptionStub = struct {
 
 fn generateExceptionStub(comptime index: u8) type {
     return struct {
+        /// When an interrupt begins:
+        /// - disable interrupts
+        /// - push an error if one is not provided, to even out the stack
+        /// - push the interrupt vector
+        /// - call the proper delegation function
         fn func() callconv(.Naked) void {
             assembly.disableInterrupts();
 
@@ -219,6 +263,7 @@ fn generateExceptionStub(comptime index: u8) type {
     };
 }
 
+// TODO can we reduce this to just one function?
 const exceptionStubs = blk: {
     var ret: [256]type = undefined;
 
@@ -229,6 +274,7 @@ const exceptionStubs = blk: {
     break :blk ret;
 };
 
+/// Sets gate as enabled, with the requsted type attributes
 // Theoretically most of this function can be done at comptime,
 // and the only thing that would need to be done at runtime would be
 // setting the exceptionHandler[index] and updating the type attributes
@@ -236,17 +282,17 @@ const exceptionStubs = blk: {
 // maybe that would have to be done at initialization instead)
 pub fn setGate(comptime index: u8, handler: *const ExceptionHandler, type_attr: u8) void {
     const address_int: u64 = @intFromPtr(&(exceptionStubs[index].func));
-    idt[index].offset_low = @truncate(address_int);
-    idt[index].selector = @truncate(@offsetOf(@import("GDT.zig").GDT, "kernel_code"));
-    idt[index].ist = 0;
-    idt[index].type_attr = type_attr;
-    idt[index].offset_mid = @truncate(address_int >> 16);
-    idt[index].offset_high = @truncate(address_int >> 32);
-    idt[index].zero = 0;
+    idt[index] = .{
+        .offset_low = @truncate(address_int),
+        .type_attr = type_attr,
+        .offset_mid = @truncate(address_int >> 16),
+        .offset_high = @truncate(address_int >> 32),
+    };
 
     exception_handlers[index] = handler;
 }
 
+/// sets up the IDT with the bottom 32 gates opened for the regularly expected CPU interrupts
 pub fn init() void {
     idtr.base = @intFromPtr(&idt);
 
@@ -254,6 +300,7 @@ pub fn init() void {
         setGate(@intCast(i), &exceptionHandlerDefault, 0x8F);
     }
 
+    // Loads the IDT
     asm volatile ("lidt (%%rax)"
         :
         : [idtr] "{rax}" (&idtr),
