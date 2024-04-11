@@ -67,19 +67,16 @@ fn mapNecessaryBeforeLoad(pml4: *PageTable) !void {
     // Map the framebuffer
     {
         const fb_virt_addr = @intFromPtr(kernel.main_framebuffer.addr.ptr);
+        // TODO convert manual resolution into a function
         const fb_phys_addr = blk: {
             const pml4_offset: u9 = @truncate(fb_virt_addr >> 39);
             const pml3_offset: u9 = @truncate(fb_virt_addr >> 30);
             const pml2_offset: u9 = @truncate(fb_virt_addr >> 21);
             const pml1_offset: u9 = @truncate(fb_virt_addr >> 12);
 
-            const old_pml4: *PageTable = blk1: {
-                var val: usize = 0;
-                asm volatile ("mov %cr3, %[addr]"
-                    : [addr] "={rax}" (val),
-                );
-                break :blk1 @ptrFromInt(val);
-            };
+            const old_pml4: *PageTable = @ptrFromInt(
+                PageTable.getCr3() & ~@as(u64, 0b111111111111),
+            );
             const pml3: *PageTable = @ptrFromInt((old_pml4.entries[pml4_offset].physical_addr_page << 12) + hhdm_start);
             const pml2: *PageTable = @ptrFromInt((pml3.entries[pml3_offset].physical_addr_page << 12) + hhdm_start);
             const pml1: *PageTable = @ptrFromInt((pml2.entries[pml2_offset].physical_addr_page << 12) + hhdm_start);
@@ -180,12 +177,10 @@ pub const PageTable = struct {
     }
 
     fn getCr3() usize {
-        var val: usize = 0;
-        asm volatile (
+        return asm volatile (
             \\mov %cr3, %[addr]
-            : [addr] "={rax}" (val),
+            : [addr] "={rax}" (-> u64),
         );
-        return val;
     }
 
     /// Must only be called on PML4 PageTable
@@ -471,14 +466,10 @@ const handler_fmt =
 var handler_buf: [handler_fmt.len + @sizeOf(IDT.ISF) * 8:0]u8 = undefined;
 
 fn pageFaultHandler(isf: *IDT.ISF) void {
-    var cr2 = blk: {
-        var val: usize = 0;
-        asm volatile (
-            \\mov %cr2, %[addr]
-            : [addr] "={rax}" (val),
-        );
-        break :blk val;
-    };
+    var cr2 = asm volatile (
+        \\mov %cr2, %[addr]
+        : [addr] "={rax}" (-> u64),
+    );
     kernel.main_serial.print("page fault at 0x{X} because 0x{X}!\n", .{ cr2, isf.err });
     var msg = std.fmt.bufPrintZ(&handler_buf, handler_fmt, .{ isf.err, cr2, isf }) catch {
         @panic("Page fault, but could not format the crash message!");

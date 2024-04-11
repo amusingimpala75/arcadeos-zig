@@ -53,32 +53,15 @@ pub fn initializeGDT() void {
     gdtr.ptr = &gdt;
 
     // Load GDTR
-    asm volatile ("lgdt (%%rax)"
-        :
-        : [gdt] "{rax}" (&gdtr),
-    );
+    assembly.loadGDTR(&gdtr);
 
-    // Reload other segments
-    asm volatile (
-        \\mov %[kernel_data],%ds
-        \\mov %rax,%es
-        \\mov %rax,%fs
-        \\mov %rax,%gs
-        \\mov %rax,%ss
-        :
-        : [kernel_data] "{rax}" (@as(u16, @truncate(@offsetOf(GDT, "kernel_data")))),
-    );
+    // Reload non-CS segments
+    inline for ([_][]const u8{ "ds", "es", "fs", "gs", "ss" }) |reg| {
+        assembly.loadSegmentRegister(reg, kernel_data_offset);
+    }
 
     // Reload CS
-    asm volatile (
-        \\pushq %[kernel_code]
-        \\lea .gdtDone(%rip),%rax
-        \\push %rax
-        \\lretq
-        \\.gdtDone:
-        :
-        : [kernel_code] "{dx}" (@offsetOf(GDT, "kernel_code")),
-    );
+    assembly.loadCodeSegmentRegister(kernel_code_offset);
 }
 
 // Packed struct still pads size to more than 16 bits

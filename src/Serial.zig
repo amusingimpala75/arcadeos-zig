@@ -5,6 +5,8 @@ const Serial = @This();
 
 const std = @import("std");
 
+const assembly = @import("x86_64/assembly.zig");
+
 const SerialError = error{};
 const SerialWriter = std.io.Writer(
     *Serial,
@@ -15,7 +17,7 @@ const SerialWriter = std.io.Writer(
 port: u16,
 writer: SerialWriter = .{ .context = undefined },
 
-// COM1
+/// COM1
 pub const serial1_port = 0x3f8;
 
 /// Initialize serial port.
@@ -23,25 +25,25 @@ pub const serial1_port = 0x3f8;
 /// and sets up the writer for printing
 pub fn init(self: *Serial) !void {
     self.writer.context = self;
-    outb(self.port + 1, 0x00); // Disable all interrupts
-    outb(self.port + 3, 0x80); // Enable DLAB (set baud rate divisor)
-    outb(self.port + 0, 0x03); // Set divisor to 3 (lo byte) 38400 baud
-    outb(self.port + 1, 0x00); //                  (hi byte)
-    outb(self.port + 3, 0x03); // 8 bits, no parity, one stop bit
-    outb(self.port + 2, 0xC7); // Enable FIFO, clear them, with 14-byte threshold
-    outb(self.port + 4, 0x0B); // IRQs enabled, RTS/DSR set
-    outb(self.port + 4, 0x1E); // Set in loopback mode, test the serial chip
-    outb(self.port + 0, 0xAE); // Test serial chip (send byte 0xAE and check if serial
+    assembly.outb(self.port + 1, 0x00); // Disable all interrupts
+    assembly.outb(self.port + 3, 0x80); // Enable DLAB (set baud rate divisor)
+    assembly.outb(self.port + 0, 0x03); // Set divisor to 3 (lo byte) 38400 baud
+    assembly.outb(self.port + 1, 0x00); //                  (hi byte)
+    assembly.outb(self.port + 3, 0x03); // 8 bits, no parity, one stop bit
+    assembly.outb(self.port + 2, 0xC7); // Enable FIFO, clear them, with 14-byte threshold
+    assembly.outb(self.port + 4, 0x0B); // IRQs enabled, RTS/DSR set
+    assembly.outb(self.port + 4, 0x1E); // Set in loopback mode, test the serial chip
+    assembly.outb(self.port + 0, 0xAE); // Test serial chip (send byte 0xAE and check if serial
     // returns same byte)
 
     // Check if serial is faulty (i.e: not same byte as sent)
-    if (inb(self.port + 0) != 0xAE) {
+    if (assembly.inb(self.port + 0) != 0xAE) {
         return error.SerialFaulty;
     }
 
     // If serial is not faulty set it in normal operation mode
     // (not-loopback with IRQs enabled and OUT#1 and OUT#2 bits enabled)
-    outb(self.port + 4, 0x0F);
+    assembly.outb(self.port + 4, 0x0F);
 }
 
 /// write a slice of bytes to serial
@@ -59,29 +61,12 @@ fn serialWrite(self: *Serial, data: []const u8) SerialError!usize {
 
 /// blocks until the serial port is clear, then writes the characters
 fn putc(self: Serial, char: u8) void {
-    while (inb(self.port + 5) & 0x20 == 0x00) {}
-    outb(self.port, char);
+    while (assembly.inb(self.port + 5) & 0x20 == 0x00) {}
+    assembly.outb(self.port, char);
 }
 
 /// format-prints the data, assumes no errors will be thrown
 /// (which is true for now)
 pub fn print(self: Serial, comptime fmt: []const u8, args: anytype) void {
     std.fmt.format(self.writer, fmt, args) catch unreachable;
-}
-
-/// write to serial port
-inline fn outb(port: u16, byte: u8) void {
-    asm volatile ("outb %[byte], %[port]"
-        :
-        : [byte] "{al}" (byte),
-          [port] "{dx}" (port),
-    );
-}
-
-/// read from serial port
-inline fn inb(port: u16) u8 {
-    return asm volatile ("inb %[port], %[byte]"
-        : [byte] "={al}" (-> u8),
-        : [port] "{dx}" (port),
-    );
 }

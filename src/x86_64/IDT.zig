@@ -4,6 +4,9 @@ const std = @import("std");
 
 const kernel = @import("../kernel.zig");
 
+const assembly = @import("assembly.zig");
+const GDT = @import("GDT.zig");
+
 var idt: [256]Entry align(0x10) = undefined;
 var idtr: Descriptor = .{
     .limit = @sizeOf(@TypeOf(idt)) - 1,
@@ -142,15 +145,13 @@ export fn exceptionStubHandler() callconv(.Naked) void {
         \\push %rax
         \\mov %gs,%rax
         \\push %rax
-        \\mov %[kernel_data],%ds
-        \\mov %ax,%es
-        \\mov %ax,%fs
-        \\mov %ax,%gs
         \\mov %cr3,%rax
         \\push %rax
-        :
-        : [kernel_data] "{ax}" (@as(u16, @truncate(@offsetOf(@import("GDT.zig").GDT, "kernel_data")))),
     );
+    // Load kernel segment values
+    inline for ([_][]const u8{ "ds", "es", "fs", "gs" }) |reg| {
+        assembly.loadSegmentRegister(reg, GDT.kernel_data_offset);
+    }
     // Call exception handler
     asm volatile (
         \\mov %rsp,%rdi
@@ -185,8 +186,8 @@ export fn exceptionStubHandler() callconv(.Naked) void {
         \\add $8,%rsp
     );
     // Return from interrupt handler back to stub
+    assembly.enableInterrupts();
     asm volatile (
-        \\sti
         \\iretq
     );
 }
@@ -198,7 +199,7 @@ const ExceptionStub = struct {
 fn generateExceptionStub(comptime index: u8) type {
     return struct {
         fn func() callconv(.Naked) void {
-            asm volatile ("cli");
+            assembly.disableInterrupts();
 
             // These interrupts do not provide an error code
             if ((index < 10 and index != 8) or
@@ -257,7 +258,7 @@ pub fn init() void {
         :
         : [idtr] "{rax}" (&idtr),
     );
-    asm volatile ("sti");
+    assembly.enableInterrupts();
 }
 
 comptime {
