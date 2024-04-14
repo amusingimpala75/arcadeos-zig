@@ -1,0 +1,41 @@
+Very rough outline of things that need to be done, somewhat based on the guide from [[http://wiki.osdev.org/Creating_An_Operating_System][the osdev wiki]].
+
+In addition to these things, I also need to document more code as well as the generall system documentations,
+as well as setting up unit testing for any data structures as well as hopefully even the main OS code itself.
+
+* Early Stage:
+- [X] Terminal
+- [ ] stack smash protection
+- [X] Global Descriptor Table
+- [-] Memory Mangement
+  - [X] Physical Memory Manager
+  - [X] Paging
+  - [ ] kalloc or something like that
+  - [-] Interrupts
+    - [X] IDT
+    - [ ] IOAPIC and timers
+  - [ ] Keyboard (requires IOAPIC)
+  - [X] Pure Doom statically linked
+    use a pseudo filesystem just to make sure things work
+  - [ ] Multithread / SMP
+    - [ ] multiprocess
+    - [ ] efficient message passing
+    - [ ] SMP
+  - [ ] ext2/3/4 (pick one) file system
+
+* User Space:
+- [ ] non priveleged code
+- [ ] syscalls
+- [ ] ELF loader (for 'driver' code - priveleged but not quite kernel)
+- [ ] the great micro-kernelling - switch to micro-kernel
+- [ ] WASM runtime for games
+
+* Extension
+- [ ] userspace fork/execute
+- [ ] time
+- [ ] disk access
+- [ ] USB
+- [ ] sound
+- [ ] graphics driver(s)
+- [ ] priveleged menu for launching games
+- [ ] networking eventually
