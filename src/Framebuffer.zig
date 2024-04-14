@@ -61,7 +61,7 @@ pub fn clear(self: Framebuffer) void {
     }
 }
 
-pub fn renderTexture(self: Framebuffer, x: u64, y: u64, w: u64, h: u64, texture: []const []const []const u8) void {
+pub fn renderTexture(self: Framebuffer, x: u64, y: u64, w: u64, h: u64, texture: []const []const [4]u8) void {
     for (y..@min(y + h, self._height)) |hi| {
         for (x..@min(x + w, self._width)) |wi| {
             @setRuntimeSafety(false);

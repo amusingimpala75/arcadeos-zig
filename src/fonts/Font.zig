@@ -1,4 +1,5 @@
 const Framebuffer = @import("../Framebuffer.zig");
+const Palette = @import("../Palette.zig");
 const config = @import("config");
 
 bytes: []const u8,
@@ -26,30 +27,22 @@ fn charBitmap(self: *const Font, char: u8) []const u8 {
     return self.bytes[start_index..end_index];
 }
 
-pub fn drawCharScaled(self: *const Font, framebuffer: Framebuffer, char: u8, fg: u32, bg: u32, bga: bool, x: usize, y: usize, scale: usize) void {
+pub fn drawCharScaled(self: *const Font, framebuffer: Framebuffer, char: u8, palette: *const Palette, x: usize, y: usize, scale: usize) void {
     const bitmap = self.charBitmap(char);
-
-    const r: u8 = @intCast((fg >> 16) & 0xff);
-    const g: u8 = @intCast((fg >> 8) & 0xff);
-    const b: u8 = @intCast((fg >> 0) & 0xff);
-
-    const bgr: u8 = @intCast((bg >> 16) & 0xff);
-    const bgg: u8 = @intCast((bg >> 8) & 0xff);
-    const bgb: u8 = @intCast((bg >> 0) & 0xff);
 
     for (bitmap, 0..height) |row, rowi| {
         for (0..width) |col| {
             if (row & (@as(u8, 0b10000000) >> @as(u3, @intCast(col))) != 0) {
                 for (0..scale) |iy| {
                     for (0..scale) |ix| {
-                        framebuffer.setPixel(x + col * scale + ix, y + rowi * scale + iy, r, g, b);
+                        framebuffer.setPixel(x + col * scale + ix, y + rowi * scale + iy, palette.fg_bright.r, palette.fg_bright.g, palette.fg_bright.b);
                     }
                 }
             } else {
-                if (bga) {
+                if (palette.bg.a != 0xff) {
                     for (0..scale) |iy| {
                         for (0..scale) |ix| {
-                            framebuffer.setPixel(x + col * scale + ix, y + rowi * scale + iy, bgr, bgg, bgb);
+                            framebuffer.setPixel(x + col * scale + ix, y + rowi * scale + iy, palette.bg.r, palette.bg.g, palette.bg.b);
                         }
                     }
                 }
@@ -58,6 +51,6 @@ pub fn drawCharScaled(self: *const Font, framebuffer: Framebuffer, char: u8, fg:
     }
 }
 
-pub fn drawChar(self: *const Font, framebuffer: Framebuffer, char: u8, fg: u32, x: usize, y: usize) void {
-    self.drawCharScaled(framebuffer, char, fg, x, y, 1);
+pub fn drawChar(self: *const Font, framebuffer: Framebuffer, char: u8, palette: *const Palette, x: usize, y: usize) void {
+    self.drawCharScaled(framebuffer, char, palette, x, y, 1);
 }

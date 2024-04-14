@@ -4,6 +4,7 @@ const std = @import("std");
 
 const Font = @import("fonts/Font.zig");
 const kernel = @import("kernel.zig");
+const Palette = @import("Palette.zig");
 
 const TerminalError = error{};
 
@@ -25,7 +26,7 @@ const TerminalWriter = std.io.Writer(
 chars: TerminalRingbuffer = TerminalRingbuffer.init(),
 row: u8 = 0,
 col: u8 = 0,
-color: u24 = 0xffffff,
+palette: *const Palette = Palette.default,
 writer: TerminalWriter = .{ .context = undefined },
 char_scale: u8 = 0,
 
@@ -78,9 +79,7 @@ fn drawChar(self: *Terminal, char: u8, x: usize, y: usize) void {
         Font.fonts[0].drawCharScaled(
             kernel.main_framebuffer,
             char,
-            self.color,
-            0x00,
-            true,
+            self.palette,
             x * char_width,
             y * char_height,
             self.char_scale,
@@ -91,8 +90,8 @@ fn drawChar(self: *Terminal, char: u8, x: usize, y: usize) void {
             y * char_height,
             char_width,
             char_height,
-            &[_][]const []const u8{
-                &[_][]const u8{&[_]u8{ 0x00, 0x00, 0x00, 0xff }},
+            &[_][]const [4]u8{
+                &[_][4]u8{self.palette.bg.rgbByteArray()},
             },
         );
     }

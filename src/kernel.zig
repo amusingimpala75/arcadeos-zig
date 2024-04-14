@@ -7,6 +7,7 @@ const IDT = @import("x86_64/IDT.zig");
 const builtin = @import("std").builtin;
 const Terminal = @import("Terminal.zig");
 const paging = @import("x86_64/paging.zig");
+const Palette = @import("Palette.zig");
 
 const limine = @import("limine");
 
@@ -32,11 +33,13 @@ pub fn panic(msg: []const u8, st: ?*builtin.StackTrace, s: ?usize) noreturn {
     _ = s;
     // In case of really bad failure, at least print something to serial port
     main_serial.print("panic! {s}\n", .{msg});
+    // Get color palette
+    const palette = Palette.default;
     // Draw error message background
-    main_framebuffer.renderTexture(0, 0, main_framebuffer.width(), main_framebuffer.height(), &[_][]const []const u8{
-        &[_][]const u8{ &[_]u8{ 0xff, 0x00, 0x00, 0xff }, &[_]u8{ 0x00, 0xff, 0x00, 0xff }, &[_]u8{ 0x00, 0x00, 0xff, 0xff } },
-        &[_][]const u8{ &[_]u8{ 0xff, 0xff, 0x00, 0xff }, &[_]u8{ 0x00, 0xff, 0xff, 0xff }, &[_]u8{ 0xff, 0x00, 0xff, 0xff } },
-        &[_][]const u8{ &[_]u8{ 0xff, 0xff, 0xff, 0xff }, &[_]u8{ 0x00, 0x00, 0x00, 0xff }, &[_]u8{ 0x80, 0x80, 0x80, 0xff } },
+    main_framebuffer.renderTexture(0, 0, main_framebuffer.width(), main_framebuffer.height(), &[_][]const [4]u8{
+        &[_][4]u8{ palette.red.rgbByteArray(), palette.green.rgbByteArray(), palette.blue.rgbByteArray() },
+        &[_][4]u8{ palette.yellow.rgbByteArray(), palette.aqua.rgbByteArray(), palette.purple.rgbByteArray() },
+        &[_][4]u8{ palette.fg_bright.rgbByteArray(), palette.aqua.rgbByteArray(), palette.bg.rgbByteArray() },
     });
 
     // start 100px 100px away from top left corner
@@ -48,8 +51,8 @@ pub fn panic(msg: []const u8, st: ?*builtin.StackTrace, s: ?usize) noreturn {
     const msg_rect_height = main_framebuffer.height() - msg_rect_y * 2;
 
     // render text box background
-    main_framebuffer.renderTexture(msg_rect_x, msg_rect_y, msg_rect_width, msg_rect_height, &[_][]const []const u8{
-        &[_][]const u8{&[_]u8{ 0xff, 0x80, 0x80, 0xff }},
+    main_framebuffer.renderTexture(msg_rect_x, msg_rect_y, msg_rect_width, msg_rect_height, &[_][]const [4]u8{
+        &[_][4]u8{palette.blue_bright.rgbByteArray()},
     });
 
     // grab main font, scale by 4x for header font
@@ -67,9 +70,7 @@ pub fn panic(msg: []const u8, st: ?*builtin.StackTrace, s: ?usize) noreturn {
         font.drawCharScaled(
             main_framebuffer,
             c,
-            0xffffff,
-            0x00,
-            false, // don't draw black box around each character
+            palette,
             title_x + i * title_char_width,
             title_y,
             title_scale,
@@ -96,9 +97,7 @@ pub fn panic(msg: []const u8, st: ?*builtin.StackTrace, s: ?usize) noreturn {
             font.drawCharScaled(
                 main_framebuffer,
                 c,
-                0xffffff,
-                0x00,
-                false, // don't print black box around characters
+                palette,
                 msg_x + x,
                 msg_y + y,
                 msg_scale,
