@@ -8,6 +8,7 @@ _height: u64,
 pitch: u64,
 bpp: u16,
 addr: []u8,
+clear_color: [4]u8,
 
 export var fb_request: limine.FramebufferRequest = .{};
 
@@ -22,6 +23,7 @@ pub fn init(index: u64) ?Framebuffer {
                 .pitch = fb.pitch,
                 .bpp = fb.bpp,
                 .addr = fb.address[0 .. fb.pitch * fb.height],
+                .clear_color = [4]u8{ 0, 0, 0, 0xff },
             };
         }
     }
@@ -54,11 +56,15 @@ fn setPixelUnsafe(self: Framebuffer, x: u64, y: u64, r: u8, g: u8, b: u8) void {
 }
 
 pub fn clear(self: Framebuffer) void {
-    for (0..self._height) |y| {
-        for (0..self._width) |x| {
-            self.setPixelUnsafe(x, y, 0, 0, 0);
+    for (0..self.height) |y| {
+        for (0..self.height) |x| {
+            self.setPixelUnsafe(x, y, self.clear_color.r, self.clear_color.g, self.clear_color.b);
         }
     }
+}
+
+pub fn setClearColor(self: *Framebuffer, col: [4]u8) void {
+    self.clear_color = col;
 }
 
 pub fn renderTexture(self: Framebuffer, x: u64, y: u64, w: u64, h: u64, texture: []const []const [4]u8) void {
