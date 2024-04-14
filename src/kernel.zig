@@ -36,7 +36,7 @@ pub fn panic(msg: []const u8, st: ?*builtin.StackTrace, s: ?usize) noreturn {
     // Get color palette
     const palette = Palette.default;
     // Draw error message background
-    main_framebuffer.renderTexture(0, 0, main_framebuffer.width(), main_framebuffer.height(), &[_][]const [4]u8{
+    main_framebuffer.renderTexture(0, 0, main_framebuffer.width, main_framebuffer.height, &[_][]const [4]u8{
         &[_][4]u8{ palette.red.rgbByteArray(), palette.green.rgbByteArray(), palette.blue.rgbByteArray() },
         &[_][4]u8{ palette.yellow.rgbByteArray(), palette.aqua.rgbByteArray(), palette.purple.rgbByteArray() },
         &[_][4]u8{ palette.fg_bright.rgbByteArray(), palette.aqua.rgbByteArray(), palette.bg.rgbByteArray() },
@@ -47,8 +47,8 @@ pub fn panic(msg: []const u8, st: ?*builtin.StackTrace, s: ?usize) noreturn {
     const msg_rect_y = 100;
 
     // go to 100px 100px away from bottom right corner
-    const msg_rect_width = main_framebuffer.width() - msg_rect_x * 2;
-    const msg_rect_height = main_framebuffer.height() - msg_rect_y * 2;
+    const msg_rect_width = main_framebuffer.width - msg_rect_x * 2;
+    const msg_rect_height = main_framebuffer.height - msg_rect_y * 2;
 
     // render text box background
     main_framebuffer.renderTexture(msg_rect_x, msg_rect_y, msg_rect_width, msg_rect_height, &[_][]const [4]u8{
@@ -80,7 +80,7 @@ pub fn panic(msg: []const u8, st: ?*builtin.StackTrace, s: ?usize) noreturn {
     // Start message just below header, scale one of font
     const msg_x = 200;
     const msg_y = title_y + title_char_height * 2;
-    const msg_wrap_x = main_framebuffer.width() - msg_x;
+    const msg_wrap_x = main_framebuffer.width - msg_x;
     const msg_scale = 1;
     const msg_char_width = Font.width * msg_scale;
     const msg_char_height = Font.height * msg_scale;
@@ -156,15 +156,18 @@ export fn _start() callconv(.C) noreturn {
 
     // Funny color animation
     for (0..255) |b| {
-        for (0..main_framebuffer.height()) |h| {
-            const g: u8 = @intCast(h * 255 / main_framebuffer.height());
-            for (0..main_framebuffer.width()) |w| {
+        for (0..main_framebuffer.height) |h| {
+            const g: u8 = @intCast(h * 255 / main_framebuffer.height);
+            for (0..main_framebuffer.width) |w| {
                 main_framebuffer.setPixel(
                     w,
                     h,
-                    @intCast(w * 255 / main_framebuffer.width()),
-                    g,
-                    @intCast(b),
+                    [4]u8{
+                        @intCast(w * 255 / main_framebuffer.width),
+                        g,
+                        @intCast(b),
+                        0xff,
+                    },
                 );
             }
         }

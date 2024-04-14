@@ -87,7 +87,7 @@ fn mapNecessaryBeforeLoad(pml4: *PageTable) !void {
         try pml4.mapAll(
             fb_virt_addr,
             fb_phys_addr,
-            kernel.main_framebuffer.height() * kernel.main_framebuffer.width() * (kernel.main_framebuffer.bpp / 8),
+            kernel.main_framebuffer.width * kernel.main_framebuffer.height * (kernel.main_framebuffer.bpp / 8),
         );
     }
 

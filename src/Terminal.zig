@@ -31,8 +31,8 @@ writer: TerminalWriter = .{ .context = undefined },
 char_scale: u8 = 0,
 
 pub fn init(self: *Terminal) void {
-    const max_width_scale = kernel.main_framebuffer.width() / (Font.width * width);
-    const max_height_scale = kernel.main_framebuffer.height() / (Font.height * height);
+    const max_width_scale = kernel.main_framebuffer.width / (Font.width * width);
+    const max_height_scale = kernel.main_framebuffer.height / (Font.height * height);
 
     self.char_scale = @intCast(@min(max_width_scale, max_height_scale));
 

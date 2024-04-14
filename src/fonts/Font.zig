@@ -35,14 +35,14 @@ pub fn drawCharScaled(self: *const Font, framebuffer: Framebuffer, char: u8, pal
             if (row & (@as(u8, 0b10000000) >> @as(u3, @intCast(col))) != 0) {
                 for (0..scale) |iy| {
                     for (0..scale) |ix| {
-                        framebuffer.setPixel(x + col * scale + ix, y + rowi * scale + iy, palette.fg_bright.r, palette.fg_bright.g, palette.fg_bright.b);
+                        framebuffer.setPixel(x + col * scale + ix, y + rowi * scale + iy, palette.fg_bright.rgbByteArray());
                     }
                 }
             } else {
                 if (palette.bg.a != 0xff) {
                     for (0..scale) |iy| {
                         for (0..scale) |ix| {
-                            framebuffer.setPixel(x + col * scale + ix, y + rowi * scale + iy, palette.bg.r, palette.bg.g, palette.bg.b);
+                            framebuffer.setPixel(x + col * scale + ix, y + rowi * scale + iy, palette.bg.rgbByteArray());
                         }
                     }
                 }
