@@ -13,31 +13,32 @@ pub fn build(b: *std.Build) void {
     enabled.addFeature(@intFromEnum(Features.soft_float));
 
     // TODO: support other targets
-    const target: std.zig.CrossTarget = .{
+    const target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .freestanding,
         .cpu_features_add = enabled,
         .cpu_features_sub = disabled,
         .abi = .none,
-    };
+    });
     const optimize = b.standardOptimizeOption(.{});
 
     const kernel = b.addExecutable(.{
         .name = "arcadeos.elf",
-        .root_source_file = .{ .path = "src/kernel.zig" },
+        .root_source_file = b.path("src/kernel.zig"),
         .target = target,
         .optimize = optimize,
     });
-    kernel.code_model = .kernel;
+    var kernel_mod = &kernel.root_module;
+    kernel_mod.code_model = .kernel;
 
     const font = b.option([]const u8, "font", "Which font to use for the operating system, path relative to src/fonts/vga-text-mode-fonts/FONTS") orelse "PC-IBM/BIOS_D.F16";
 
     const options = b.addOptions();
     options.addOption([]const u8, "font_name", font);
-    kernel.addOptions("config", options);
+    kernel_mod.addOptions("config", options);
 
     const limine = b.dependency("limine", .{});
-    kernel.addModule("limine", limine.module("limine"));
+    kernel_mod.addImport("limine", limine.module("limine"));
 
     kernel.pie = true;
     kernel.setLinkerScriptPath(.{ .path = "linker.ld" });

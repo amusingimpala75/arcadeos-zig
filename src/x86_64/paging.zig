@@ -220,8 +220,7 @@ pub const PageTable = struct {
 
     fn allocNoInit() !*PageTable {
         const blk = try physical_mem_manager.allocBlocks(0);
-        var self: *PageTable = @ptrFromInt((blk << 12) + hhdm_start);
-        return self;
+        return @ptrFromInt((blk << 12) + hhdm_start);
     }
 
     fn isLoaded(self: *PageTable) bool {
@@ -470,12 +469,12 @@ const handler_fmt =
 var handler_buf: [handler_fmt.len + @sizeOf(IDT.ISF) * 8:0]u8 = undefined;
 
 fn pageFaultHandler(isf: *IDT.ISF) void {
-    var cr2 = asm volatile (
+    const cr2 = asm volatile (
         \\mov %cr2, %[addr]
         : [addr] "={rax}" (-> u64),
     );
     kernel.main_serial.print("page fault at 0x{X} because 0x{X}!\n", .{ cr2, isf.err });
-    var msg = std.fmt.bufPrintZ(&handler_buf, handler_fmt, .{ isf.err, cr2, isf }) catch {
+    const msg = std.fmt.bufPrintZ(&handler_buf, handler_fmt, .{ isf.err, cr2, isf }) catch {
         @panic("Page fault, but could not format the crash message!");
     };
     @panic(msg);

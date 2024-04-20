@@ -3,7 +3,7 @@
 A rewrite of [arcadeos](https://github.com/amusingimpala75/arcadeos) from C to Zig.
 
 System dependencies:
-- zig 0.11.0
+- zig 0.12.0
 - qemu
 - git
 - xorriso

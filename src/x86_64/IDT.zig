@@ -231,10 +231,6 @@ export fn exceptionStubHandler() callconv(.Naked) void {
     );
 }
 
-const ExceptionStub = struct {
-    fn () callconv(.Naked) void;
-};
-
 fn generateExceptionStub(comptime index: u8) type {
     return struct {
         /// When an interrupt begins:
