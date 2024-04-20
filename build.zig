@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
     disabled.addFeature(@intFromEnum(Features.avx2));
     enabled.addFeature(@intFromEnum(Features.soft_float));
 
+    // TODO: support other targets
     const target: std.zig.CrossTarget = .{
         .cpu_arch = .x86_64,
         .os_tag = .freestanding,
@@ -37,6 +38,7 @@ pub fn build(b: *std.Build) void {
 
     const limine = b.dependency("limine", .{});
     kernel.addModule("limine", limine.module("limine"));
+
     kernel.pie = true;
     kernel.setLinkerScriptPath(.{ .path = "linker.ld" });
 
@@ -91,16 +93,6 @@ pub fn build(b: *std.Build) void {
     clean_step.dependOn(&clean.step);
 
     // TODO: unit testing
-    //    const unit_tests = b.addTest(.{
-    //        .root_source_file = .{ .path = "src/main.zig" },
-    //        .target = target,
-    //        .optimize = optimize,
-    //    });
-    //
-    //    const run_unit_tests = b.addRunArtifact(unit_tests);
-    //
-    //    const test_step = b.step("test", "Run unit tests");
-    //    test_step.dependOn(&run_unit_tests.step);
 }
 
 fn addIsoStep(

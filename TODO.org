@@ -15,7 +15,7 @@ as well as setting up unit testing for any data structures as well as hopefully 
     - [X] IDT
     - [ ] IOAPIC and timers
   - [ ] Keyboard (requires IOAPIC)
-  - [X] Pure Doom statically linked
+  - [ ] Pure Doom statically linked
     use a pseudo filesystem just to make sure things work
   - [ ] Multithread / SMP
     - [ ] multiprocess

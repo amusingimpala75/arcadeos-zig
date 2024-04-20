@@ -394,6 +394,10 @@ pub const PageTable = struct {
         pml1.entries[pml1_offset].setAsKernelRWX(paddr);
     }
 
+    pub fn hhdmap(pml4: *PageTable, addr: usize) !void {
+        try pml4.map(addr + hhdm_start, addr);
+    }
+
     // TODO unmapUnloaded
     pub fn unmap(pml4: *PageTable, addr: usize) !void {
         // ensure the address is mapped
