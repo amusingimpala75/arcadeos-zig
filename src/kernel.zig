@@ -139,6 +139,7 @@ export fn _start() callconv(.C) noreturn {
         @panic("Could not initialize framebuffer!\n");
     };
     main_framebuffer.setClearColor(Palette.default.bg.rgbByteArray());
+    main_framebuffer.clear();
     // Initialize terminal for printing
     terminal.init();
     // Load GDT with generic full-range descriptors

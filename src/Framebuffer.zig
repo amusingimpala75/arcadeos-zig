@@ -74,7 +74,7 @@ fn setPixelUnsafe(self: Framebuffer, x: u64, y: u64, col: [4]u8) void {
 /// clears the screen with the color of the clear color
 pub fn clear(self: Framebuffer) void {
     for (0..self.height) |y| {
-        for (0..self.height) |x| {
+        for (0..self.width) |x| {
             self.setPixelUnsafe(x, y, self.clear_color);
         }
     }

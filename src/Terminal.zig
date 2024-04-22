@@ -33,16 +33,6 @@ pub fn init(self: *Terminal) void {
 
     self.self_ptr = self;
     self.writer.context = @ptrCast(&self.self_ptr);
-
-    kernel.main_framebuffer.renderTexture(
-        0,
-        0,
-        kernel.main_framebuffer.width,
-        kernel.main_framebuffer.height,
-        &[_][]const [4]u8{
-            &[_][4]u8{self.palette.bg.rgbByteArray()},
-        },
-    );
 }
 
 fn advanceLine(self: *Terminal) void {
