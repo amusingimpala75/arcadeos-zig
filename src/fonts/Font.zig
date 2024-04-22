@@ -27,7 +27,7 @@ fn charBitmap(self: *const Font, char: u8) []const u8 {
     return self.bytes[start_index..end_index];
 }
 
-pub fn drawCharScaled(self: *const Font, framebuffer: Framebuffer, char: u8, palette: *const Palette, x: usize, y: usize, scale: usize) void {
+pub fn drawCharScaled(self: *const Font, framebuffer: Framebuffer, char: u8, palette: *const Palette, bg: bool, x: usize, y: usize, scale: usize) void {
     const bitmap = self.charBitmap(char);
 
     for (bitmap, 0..height) |row, rowi| {
@@ -39,7 +39,7 @@ pub fn drawCharScaled(self: *const Font, framebuffer: Framebuffer, char: u8, pal
                     }
                 }
             } else {
-                if (palette.bg.a != 0xff) {
+                if (bg and palette.bg.a == 0xff) {
                     for (0..scale) |iy| {
                         for (0..scale) |ix| {
                             framebuffer.setPixel(x + col * scale + ix, y + rowi * scale + iy, palette.bg.rgbByteArray());

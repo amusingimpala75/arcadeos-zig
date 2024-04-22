@@ -17,17 +17,12 @@ const TerminalRingbuffer = @import("util.zig").Ringbuffer(
     [1]u8{' '} ** width,
 );
 
-const TerminalWriter = std.io.Writer(
-    *Terminal,
-    TerminalError,
-    terminalWrite,
-);
-
 chars: TerminalRingbuffer = TerminalRingbuffer.init(),
 row: u8 = 0,
 col: u8 = 0,
 palette: *const Palette = Palette.default,
-writer: TerminalWriter = .{ .context = undefined },
+self_ptr: *Terminal = undefined,
+writer: std.io.AnyWriter = .{ .context = undefined, .writeFn = &terminalWrite },
 char_scale: u8 = 0,
 
 pub fn init(self: *Terminal) void {
@@ -36,7 +31,18 @@ pub fn init(self: *Terminal) void {
 
     self.char_scale = @intCast(@min(max_width_scale, max_height_scale));
 
-    self.writer.context = self;
+    self.self_ptr = self;
+    self.writer.context = @ptrCast(&self.self_ptr);
+
+    kernel.main_framebuffer.renderTexture(
+        0,
+        0,
+        kernel.main_framebuffer.width,
+        kernel.main_framebuffer.height,
+        &[_][]const [4]u8{
+            &[_][4]u8{self.palette.bg.rgbByteArray()},
+        },
+    );
 }
 
 fn advanceLine(self: *Terminal) void {
@@ -57,7 +63,11 @@ fn putChar(self: *Terminal, char: u8) void {
     }
 }
 
-fn terminalWrite(self: *Terminal, chars: []const u8) TerminalError!usize {
+fn terminalWrite(ctx: *const anyopaque, chars: []const u8) anyerror!usize {
+    const self: *Terminal = @as(
+        *const *Terminal,
+        @alignCast(@ptrCast(ctx)),
+    ).*;
     var i: usize = 0;
     while (i < chars.len) : (i += 1) {
         switch (chars[i]) {
@@ -80,6 +90,7 @@ fn drawChar(self: *Terminal, char: u8, x: usize, y: usize) void {
             kernel.main_framebuffer,
             char,
             self.palette,
+            true,
             x * char_width,
             y * char_height,
             self.char_scale,
