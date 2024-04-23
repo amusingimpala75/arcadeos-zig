@@ -9,9 +9,13 @@
         "build.zig.zon",
     },
     .dependencies = .{
-        .limine = .{
+        .@"limine-zig" = .{
             .url = "git+https://github.com/limine-bootloader/limine-zig#c94d35f1f116e9e8a7943f30712901760c3d7d96",
             .hash = "1220889cec612d653c31a4063d20daa9ec382ac23f76e9cc60a778b0ad17377bafa1",
+        },
+        .@"limine-bin" = .{
+            .url = "git+https://github.com/limine-bootloader/limine#v5.x-branch-binary",
+            .hash = "12205f6fd8efe4ae5c4b935373267babc14c08c0fe8daeeca7b59721289bde4c23e7",
         },
     },
 }
