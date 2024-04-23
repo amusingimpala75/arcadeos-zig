@@ -44,7 +44,9 @@ pub fn build(b: *std.Build) !void {
 
     const limine_bin_dep = b.dependency("limine-bin", .{});
 
-    const build_iso_step, const iso_path = addIsoStep(b, limine_bin_dep, kernel_install, "limine.cfg", "iso");
+    const timeout = b.option(usize, "timeout", "How long to wait at the boot screen before automatic boot. (Default: 0)") orelse 0;
+
+    const build_iso_step, const iso_path = addIsoStep(b, limine_bin_dep, kernel_install, true, timeout, "iso");
 
     const run_cmd = b.addSystemCommand(&[_][]const u8{
         "qemu-system-x86_64", "-M",     "q35",        "-m",    "2G",
@@ -55,7 +57,7 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run arcadeos");
     run_step.dependOn(&run_cmd.step);
 
-    const build_debug_iso_step, const debug_iso_path = addIsoStep(b, limine_bin_dep, kernel_install, "limine-debug.cfg", "debug_iso");
+    const build_debug_iso_step, const debug_iso_path = addIsoStep(b, limine_bin_dep, kernel_install, false, timeout, "debug_iso");
 
     const debug_cmd = b.addSystemCommand(&[_][]const u8{
         "/bin/sh",
@@ -81,11 +83,25 @@ pub fn build(b: *std.Build) !void {
     // TODO: unit testing
 }
 
+fn generateLimineCfg(b: *std.Build, kaslr: bool, timeout: usize) struct { *std.Build.Step.WriteFile, std.Build.LazyPath } {
+    const wf = std.Build.Step.WriteFile.create(b);
+    const cfg = wf.add("limine.cfg", b.fmt(
+        \\TIMEOUT={}
+        \\
+        \\:ArcadeOS
+        \\  PROTOCOL=limine
+        \\  KERNEL_PATH=boot:///arcadeos.elf
+        \\{s}
+    , .{ timeout, if (!kaslr) "  KASLR=no" else "" }));
+    return .{ wf, cfg };
+}
+
 fn addIsoStep(
     b: *std.Build,
     limine_dep: *std.Build.Dependency,
     kernel_install: *std.Build.Step.InstallArtifact,
-    cfg_name: []const u8,
+    kaslr: bool,
+    timeout: usize,
     step_name: []const u8,
 ) struct { *std.Build.Step, []const u8 } {
     const limine_installer = b.addExecutable(.{
@@ -124,7 +140,10 @@ fn addIsoStep(
         mk_iso.step.dependOn(&b.addInstallFile(limine_dep.path(file), iso_prefix ++ "EFI/BOOT/" ++ file).step);
     }
 
-    mk_iso.step.dependOn(&b.addInstallFile(b.path(cfg_name), iso_prefix ++ "limine.cfg").step);
+    const generate_cfg, const cfg_path = generateLimineCfg(b, kaslr, timeout);
+    const install_cfg = b.addInstallFile(cfg_path, iso_prefix ++ "limine.cfg");
+    install_cfg.step.dependOn(&generate_cfg.step);
+    mk_iso.step.dependOn(&install_cfg.step);
 
     const limine_install = b.addSystemCommand(&[_][]const u8{
         limine_installer_path,
