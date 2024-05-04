@@ -32,6 +32,7 @@ pub fn build(b: *std.Build) !void {
     kernel.setLinkerScriptPath(.{ .path = "linker.ld" });
     kernel.root_module.code_model = .kernel;
     const kernel_install = b.addInstallArtifact(kernel, .{ .dest_dir = .{ .override = .{ .custom = "iso" } } });
+    b.getInstallStep().dependOn(&kernel_install.step);
 
     const options = b.addOptions();
     const font = b.option([]const u8, "font", "Which font to use for the operating system, path relative to src/fonts/vga-text-mode-fonts/FONTS") orelse "PC-IBM/BIOS_D.F16";

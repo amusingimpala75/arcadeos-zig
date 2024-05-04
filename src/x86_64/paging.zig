@@ -103,7 +103,7 @@ fn mapNecessaryBeforeLoad(pml4: *PageTable) !void {
     }
 }
 
-const page_size = 4096;
+pub const page_size = 4096;
 
 pub const PageTable = struct {
     /// Limine loads us at or above 0xFFFFFFFF80000000,
@@ -232,7 +232,7 @@ pub const PageTable = struct {
         self.entries[recurse].setAsKernelRWX(self.physicalAddr());
     }
 
-    fn pml4Recurse() *PageTable {
+    pub fn pml4Recurse() *PageTable {
         const addr =
             0xFFFF_0000_0000_0000 |
             @as(usize, @intCast(recurse)) << 39 |
@@ -393,12 +393,13 @@ pub const PageTable = struct {
         pml1.entries[pml1_offset].setAsKernelRWX(paddr);
     }
 
-    pub fn hhdmap(pml4: *PageTable, addr: usize) !void {
+    pub fn hhdmap(pml4: *PageTable, addr: usize) !usize {
         try pml4.map(addr + hhdm_start, addr);
+        return addr + hhdm_start;
     }
 
     // TODO unmapUnloaded
-    pub fn unmap(pml4: *PageTable, addr: usize) !void {
+    pub fn unmap(pml4: *PageTable, addr: usize) !usize {
         // ensure the address is mapped
         _ = try PageTable.resolve(addr);
         defer pml4.load(); // always reload CR3 until targeted TLB flushing is implemented
@@ -411,16 +412,18 @@ pub const PageTable = struct {
         // if this was not the last mapping in the PML1, return
         // otherwise, free the PML1, set its entry in the PML2 to be
         // not present, and check again at this level, continuing up to PML4
-        {
+        const block = blk: {
             const pml1 = pml1Recurse(pml4_offset, pml3_offset, pml2_offset);
+            const val = pml1.entries[pml1_offset].physical_addr_page;
             pml1.entries[pml1_offset].setAsUnavailable();
 
             for (0..recurse) |i| {
                 if (pml1.entries[i].present) {
-                    return;
+                    return val;
                 }
             }
-        }
+            break :blk val;
+        };
 
         {
             const pml2 = pml2Recurse(pml4_offset, pml3_offset);
@@ -429,7 +432,7 @@ pub const PageTable = struct {
 
             for (0..recurse) |i| {
                 if (pml2.entries[i].present) {
-                    return;
+                    return block;
                 }
             }
         }
@@ -441,7 +444,7 @@ pub const PageTable = struct {
 
             for (0..recurse) |i| {
                 if (pml3.entries[i].present) {
-                    return;
+                    return block;
                 }
             }
         }
@@ -450,6 +453,21 @@ pub const PageTable = struct {
             try physical_mem_manager.freeBlock(pml4.entries[pml4_offset].physical_addr_page);
             pml4.entries[pml4_offset].setAsUnavailable();
         }
+        return block;
+    }
+
+    pub fn allocPage(self: *PageTable) !*anyopaque {
+        const blk = try physical_mem_manager.allocBlocks(1);
+        return @ptrFromInt(try self.hhdmap(blk << 12));
+    }
+
+    pub fn freePage(self: *PageTable, page: *anyopaque) !void {
+        const addr = @intFromPtr(page);
+        if (addr % page_size != 0) {
+            return error.Unaligned;
+        }
+        const blk = try self.unmap(addr);
+        try physical_mem_manager.freeBlocks(blk);
     }
 
     comptime {
