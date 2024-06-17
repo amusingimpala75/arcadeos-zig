@@ -8,7 +8,7 @@ const assembly = @import("assembly.zig");
 ///
 /// Because this needs to be a packed struct, we cannot make
 /// the root declaration
-pub const GDT = packed struct {
+pub const GDT = extern struct {
     null_descriptor: SegmentDescriptor,
     kernel_code: SegmentDescriptor,
     kernel_data: SegmentDescriptor,

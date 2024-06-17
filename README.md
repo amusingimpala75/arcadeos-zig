@@ -16,7 +16,7 @@ Alternately, run `zig build iso` to generate an iso image.
 ### Licensing:
 - ArcadeOS is licensed under the MIT License
 - ArcadeOS uses the Limine bootloader with the limine-zig bindings, both of
-		which are licensed under the BSD 2-Clause License
+  which are licensed under the BSD 2-Clause License
 
 <!---
 We really need to find an alternative to the vga-text-mode-fonts which actually has a license, yikes.

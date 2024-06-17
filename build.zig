@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     kernel.pie = true;
-    kernel.setLinkerScriptPath(.{ .path = "linker.ld" });
+    kernel.setLinkerScriptPath(b.path("linker.ld"));
     kernel.root_module.code_model = .kernel;
     const kernel_install = b.addInstallArtifact(kernel, .{ .dest_dir = .{ .override = .{ .custom = "iso" } } });
     b.getInstallStep().dependOn(&kernel_install.step);

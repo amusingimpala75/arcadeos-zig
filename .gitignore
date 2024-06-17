@@ -3,4 +3,4 @@
 iso/
 limine/
 zig-out
-zig-cache
+.zig-cache
