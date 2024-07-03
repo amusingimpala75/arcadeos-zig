@@ -501,7 +501,7 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize, debug: bool) !*PhysicalMemo
     const pmm_block_size = pmmBlockSize(highest_addr);
     const block_count = highest_addr / block_size;
 
-    const pmm: *PhysicalMemoryManager = blk: for (map_entries) |entry| {
+    const pmm: *PhysicalMemoryManager = for (map_entries) |entry| {
         // TODO add support for acpi_reclaimable
         // and bootloader_reclaimable
         // also below
@@ -511,16 +511,14 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize, debug: bool) !*PhysicalMemo
         if (entry.kind == limine.MemoryMapEntryType.usable and
             blockFromAddr(entry.length) > pmm_block_size)
         {
-            break :blk PhysicalMemoryManager.initAt(
+            break PhysicalMemoryManager.initAt(
                 hhdm_start + entry.base,
                 block_count,
                 klen,
                 debug,
             );
         }
-    } else {
-        return error.NotEnoughPhysicalMemory;
-    };
+    } else return error.NotEnoughPhysicalMemory;
 
     // map the entries that from limine
     for (map_entries) |entry| {
