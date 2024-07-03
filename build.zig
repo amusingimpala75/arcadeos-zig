@@ -1,6 +1,8 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
+    const limine_module = b.dependency("limine-zig", .{}).module("limine");
+
     // Enabled/Disabled features
     var enabled = std.Target.Cpu.Feature.Set.empty;
     var disabled = std.Target.Cpu.Feature.Set.empty;
@@ -22,32 +24,49 @@ pub fn build(b: *std.Build) !void {
     });
     const optimize = b.standardOptimizeOption(.{});
 
-    const kernel = b.addExecutable(.{
+    const kernel_executable_options: std.Build.ExecutableOptions = .{
         .name = "arcadeos.elf",
         .root_source_file = b.path("src/kernel.zig"),
         .target = target,
         .optimize = optimize,
-    });
+    };
+
+    const kernel_options = b.addOptions();
+    const font = b.option(
+        []const u8,
+        "font",
+        "Which font to use for the operating system, path relative to src/fonts/vga-text-mode-fonts/FONTS",
+    ) orelse "PC-IBM/BIOS_D.F16";
+    kernel_options.addOption([]const u8, "font_name", font);
+
+    const kernel = b.addExecutable(kernel_executable_options);
     kernel.pie = true;
     kernel.setLinkerScriptPath(b.path("linker.ld"));
     kernel.root_module.code_model = .kernel;
-    const kernel_install = b.addInstallArtifact(kernel, .{ .dest_dir = .{ .override = .{ .custom = "iso" } } });
+    kernel.root_module.addImport("limine", limine_module);
+    kernel.root_module.addOptions("config", kernel_options);
+
+    const kernel_install = b.addInstallArtifact(kernel, .{
+        .dest_dir = .{ .override = .{ .custom = "iso" } },
+    });
     b.getInstallStep().dependOn(&kernel_install.step);
-
-    const options = b.addOptions();
-    const font = b.option([]const u8, "font", "Which font to use for the operating system, path relative to src/fonts/vga-text-mode-fonts/FONTS") orelse "PC-IBM/BIOS_D.F16";
-    options.addOption([]const u8, "font_name", font);
-
-    kernel.root_module.addOptions("config", options);
-
-    const limine = b.dependency("limine-zig", .{});
-    kernel.root_module.addImport("limine", limine.module("limine"));
 
     const limine_bin_dep = b.dependency("limine-bin", .{});
 
-    const timeout = b.option(usize, "timeout", "How long to wait at the boot screen before automatic boot. (Default: 0)") orelse 0;
+    const timeout = b.option(
+        usize,
+        "timeout",
+        "How long to wait at the boot screen before automatic boot. (Default: 0)",
+    ) orelse 0;
 
-    const build_iso_step, const iso_path = addIsoStep(b, limine_bin_dep, kernel_install, true, timeout, "iso");
+    const build_iso_step, const iso_path = addIsoStep(
+        b,
+        limine_bin_dep,
+        kernel_install,
+        true,
+        timeout,
+        "iso",
+    );
 
     const run_cmd = b.addSystemCommand(&[_][]const u8{
         "qemu-system-x86_64", "-M",     "q35",        "-m",    "2G",
@@ -58,7 +77,14 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run arcadeos");
     run_step.dependOn(&run_cmd.step);
 
-    const build_debug_iso_step, const debug_iso_path = addIsoStep(b, limine_bin_dep, kernel_install, false, timeout, "debug_iso");
+    const build_debug_iso_step, const debug_iso_path = addIsoStep(
+        b,
+        limine_bin_dep,
+        kernel_install,
+        false,
+        timeout,
+        "debug_iso",
+    );
 
     const debug_cmd = b.addSystemCommand(&[_][]const u8{
         "/bin/sh",
@@ -76,11 +102,21 @@ pub fn build(b: *std.Build) !void {
     debug_step.dependOn(&debug_cmd.step);
 
     const clean_out = std.Build.Step.RemoveDir.create(b, "zig-out");
-    const clean_cache = std.Build.Step.RemoveDir.create(b, "zig-cache");
+    const clean_cache = std.Build.Step.RemoveDir.create(b, ".zig-cache");
     const clean_step = b.step("clean", "Clean the build files");
     clean_step.dependOn(&clean_out.step);
     clean_step.dependOn(&clean_cache.step);
 
+    // check step for ZLS
+    const check_kernel = b.addExecutable(kernel_executable_options);
+
+    check_kernel.root_module.code_model = .kernel;
+    check_kernel.root_module.addOptions("config", kernel_options);
+    check_kernel.root_module.addImport("limine", limine_module);
+
+    const check_step = b.step("check", "check the code for compilation but do not create binary");
+
+    check_step.dependOn(&check_kernel.step);
     // TODO: unit testing
 }
 
