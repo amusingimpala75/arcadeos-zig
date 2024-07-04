@@ -99,7 +99,7 @@ const Descriptor = extern struct {
 /// In Long mode (x86-64), base and limit are ignored, and paging
 /// is the preferred method of protecting memory. As such, the
 /// segment are fairly basic.
-const SegmentDescriptor = packed struct {
+const SegmentDescriptor = packed struct(u64) {
     /// Together with `limit_high` describes how long the segment is
     limit_low: u16,
     /// Together with `base_high` describes the location of the segment
@@ -151,7 +151,7 @@ const SegmentDescriptor = packed struct {
     const Mode = enum { code, data };
 
     /// Type to store information about access control for the segment
-    const Access = packed struct {
+    const Access = packed struct(u8) {
         /// Set by cpu
         accessed: u1 = 0,
         /// Different depnding on the mode
@@ -198,7 +198,7 @@ const SegmentDescriptor = packed struct {
     };
 
     /// Describes the layout of the segment
-    const Flags = packed struct {
+    const Flags = packed struct(u4) {
         /// DO NOT SET
         reserved: u1 = 0,
         /// Only to be added with code mode
@@ -227,10 +227,6 @@ const SegmentDescriptor = packed struct {
 
 // various size tests. I've shot myself in the foot a few too many times previously
 comptime {
-    std.debug.assert(@sizeOf(SegmentDescriptor.Access) == @sizeOf(u8));
-    std.debug.assert(@sizeOf(SegmentDescriptor.Flags) == @sizeOf(u4));
-    std.debug.assert(@sizeOf(SegmentDescriptor) == @sizeOf(u64));
     std.debug.assert(@sizeOf(GDT) == @sizeOf(SegmentDescriptor) * 7); //null, kernel code/data, user code/data, tss lower/upper
     std.debug.assert(@sizeOf(Descriptor) == @sizeOf(usize) + @sizeOf(u16));
-    std.debug.assert(@offsetOf(Descriptor, "ptr") == 2);
 }

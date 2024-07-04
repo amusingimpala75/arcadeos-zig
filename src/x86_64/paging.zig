@@ -113,7 +113,7 @@ pub const PageTable = struct {
 
     const offset_bitmask = (1 << 9) - 1; // 511
 
-    pub const Entry = packed struct {
+    pub const Entry = packed struct(u64) {
         present: bool,
         writable: bool,
         user_accessible: bool,
@@ -159,11 +159,6 @@ pub const PageTable = struct {
                 .physical_addr_page = 0xdeadbeef,
                 .no_execute = true,
             };
-        }
-
-        comptime {
-            std.debug.assert(@sizeOf(Entry) == @sizeOf(u64));
-            std.debug.assert(@bitSizeOf(Entry) == @bitSizeOf(u64));
         }
     };
 

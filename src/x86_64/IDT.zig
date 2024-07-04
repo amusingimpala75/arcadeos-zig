@@ -20,7 +20,7 @@ var idtr: Descriptor = .{
 };
 
 /// An entry in the IDT
-const Entry = packed struct {
+const Entry = packed struct(u128) {
     /// The offset in the segment of the interrupt sub-routine
     offset_low: u16,
     /// the segment selector - we just always make it the code selector
@@ -305,6 +305,5 @@ pub fn init() void {
 }
 
 comptime {
-    std.debug.assert(@sizeOf(Entry) == 16);
     std.debug.assert(@sizeOf(Descriptor) == 10);
 }

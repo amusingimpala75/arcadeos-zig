@@ -22,13 +22,9 @@ const BlockEntry = packed struct {
 
 /// Group of `BlockEntry`s. I still have to double check if it is necessary
 /// in order to cram two `BlockEntry`s per byte in an array.
-const BlockEntryPair = packed struct {
+const BlockEntryPair = packed struct(u8) {
     l: BlockEntry,
     r: BlockEntry,
-
-    comptime {
-        std.debug.assert(@sizeOf(@This()) == @sizeOf(u8));
-    }
 };
 
 /// Since `BlockEntry`s can be in the left or right half of a byte, Zig wanted me to
