@@ -64,3 +64,24 @@ pub inline fn inb(port: u16) u8 {
         : [port] "{dx}" (port),
     );
 }
+
+pub inline fn readmsr(reg: u32, eax: *u32, edx: *u32) void {
+    var eax1: u32 = undefined;
+    var edx1: u32 = undefined;
+    asm volatile ("rdmsr"
+        : [eax] "={eax}" (eax1),
+          [edx] "={edx}" (edx1),
+        : [reg] "{ecx}" (reg),
+    );
+    eax.* = eax1;
+    edx.* = edx1;
+}
+
+pub inline fn writemsr(reg: u32, eax: u32, edx: u32) void {
+    asm volatile ("wrmsr"
+        :
+        : [eax] "{eax}" (eax),
+          [edx] "{edx}" (edx),
+          [reg] "{ecx}" (reg),
+    );
+}

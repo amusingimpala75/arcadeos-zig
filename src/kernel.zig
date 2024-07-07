@@ -8,6 +8,7 @@ const builtin = @import("std").builtin;
 const Terminal = @import("Terminal.zig");
 const paging = @import("x86_64/paging.zig");
 const Palette = @import("Palette.zig");
+const APIC = @import("x86_64/APIC.zig").APIC;
 
 const limine = @import("limine");
 
@@ -153,6 +154,8 @@ export fn _start() callconv(.C) noreturn {
     paging.initKernelPaging();
 
     // ANY BOOTLOADER SERVICES NEED TO NOT BE USED AFTER THIS POINT
+
+    const apic = APIC.map(0x1000000) catch @panic("unhandled apic init error");
 
     // Hello World, what a classic
     terminal.print("Hello, World!\n", .{});
