@@ -128,6 +128,10 @@ pub var main_serial: Serial = Serial{ .port = Serial.serial1_port };
 pub var main_framebuffer: Framebuffer = undefined;
 pub var terminal = Terminal{};
 
+fn timerHandler(_: *IDT.ISF) void {
+    @panic("timer triggered");
+}
+
 export fn _start() callconv(.C) noreturn {
     // store the stack pointer
     asm volatile (
@@ -161,6 +165,13 @@ export fn _start() callconv(.C) noreturn {
 
     // Hello World, what a classic
     terminal.print("Hello, World!\n", .{});
+
+    apic.timer_divide_configuration.write(1);
+    apic.lvt_timer.setVector(32);
+    apic.lvt_timer.unmask();
+    IDT.setGate(32, &timerHandler, 0x8F);
+
+    apic.timer_intial_count.write(@as(u32, 1) << 28);
 
     // Funny color animation
     for (0..255) |b| {
