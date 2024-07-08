@@ -9,6 +9,7 @@ const Terminal = @import("Terminal.zig");
 const paging = @import("x86_64/paging.zig");
 const Palette = @import("Palette.zig");
 const APIC = @import("x86_64/APIC.zig").APIC;
+const PIC = @import("x86_64/PIC.zig");
 
 const limine = @import("limine");
 
@@ -155,6 +156,7 @@ export fn _start() callconv(.C) noreturn {
 
     // ANY BOOTLOADER SERVICES NEED TO NOT BE USED AFTER THIS POINT
 
+    PIC.setupAndDisable();
     const apic = APIC.map(0x1000000) catch @panic("unhandled apic init error");
 
     // Hello World, what a classic
