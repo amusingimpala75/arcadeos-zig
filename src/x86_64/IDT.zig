@@ -190,9 +190,14 @@ export fn exceptionStubHandler() callconv(.Naked) void {
         \\push %rax
     );
     // Load kernel segment values
-    inline for ([_][]const u8{ "ds", "es", "fs", "gs" }) |reg| {
-        assembly.loadSegmentRegister(reg, GDT.kernel_data_offset);
-    }
+    asm volatile (
+        \\mov %[val], %ds
+        \\mov %[val], %es
+        \\mov %[val], %fs
+        \\mov %[val], %gs
+        :
+        : [val] "{ax}" (GDT.kernel_data_offset),
+    );
     // Call exception handler
     asm volatile (
         \\mov %rsp,%rdi
@@ -220,18 +225,18 @@ export fn exceptionStubHandler() callconv(.Naked) void {
         \\pop %rax
         \\pop %rsp
     );
-    // Clear the error
+    // Clear the int and the error
     asm volatile (
-        \\add $8,%rsp
+        \\add $16,%rsp
     );
     // Return from interrupt handler
-    assembly.enableInterrupts();
     asm volatile (
+        \\sti
         \\iretq
     );
 }
 
-fn generateExceptionStub(comptime index: u8) type {
+fn GenerateExceptionStub(comptime index: u8) type {
     return struct {
         /// When an interrupt begins:
         /// - disable interrupts
@@ -239,14 +244,14 @@ fn generateExceptionStub(comptime index: u8) type {
         /// - push the interrupt vector
         /// - call the proper delegation function
         fn func() callconv(.Naked) void {
-            assembly.disableInterrupts();
+            asm volatile ("cli");
 
             // These interrupts do not provide an error code
             if ((index < 10 and index != 8) or
                 (index >= 15 and index <= 28 and index != 21 and index != 17) or
-                index == 31)
+                index >= 31)
             {
-                asm volatile ("pushq $0x0");
+                asm volatile ("pushq $0");
             }
 
             asm volatile ("pushq %[interrupt]"
@@ -264,7 +269,7 @@ const exceptionStubs = blk: {
     var ret: [256]type = undefined;
 
     for (0..256) |i| {
-        ret[i] = generateExceptionStub(i);
+        ret[i] = GenerateExceptionStub(i);
     }
 
     break :blk ret;
