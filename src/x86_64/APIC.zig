@@ -30,7 +30,7 @@ pub const APIC = extern struct {
     lvt_lint0: LocalVectorTableRegister,
     lvt_lint1: LocalVectorTableRegister,
     lvt_error: LocalVectorTableRegister,
-    timer_intial_count: RWRegister,
+    timer_initial_count: RWRegister,
     timer_current_count: RRegister,
     reserved4: [4]RegisterInt,
     timer_divide_configuration: RWRegister,
