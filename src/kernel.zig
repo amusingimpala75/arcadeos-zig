@@ -128,9 +128,14 @@ pub var main_serial: Serial = Serial{ .port = Serial.serial1_port };
 pub var main_framebuffer: Framebuffer = undefined;
 pub var terminal = Terminal{};
 
+var count: u8 = 0;
+
 fn timerHandler(_: *IDT.ISF) void {
-    @panic("timer triggered");
+    count += 1;
+    apic.eoi.clear();
 }
+
+var apic: *APIC = undefined;
 
 export fn _start() callconv(.C) noreturn {
     // store the stack pointer
@@ -161,10 +166,9 @@ export fn _start() callconv(.C) noreturn {
     // ANY BOOTLOADER SERVICES NEED TO NOT BE USED AFTER THIS POINT
 
     PIC.setupAndDisable();
-    const apic = APIC.map(0x1000000) catch @panic("unhandled apic init error");
+    apic = APIC.map(0x1000000) catch @panic("unhandled apic init error");
 
-    // Hello World, what a classic
-    terminal.print("Hello, World!\n", .{});
+    terminal.print("booting", .{});
 
     apic.timer_divide_configuration.write(1);
     const gate = 48;
@@ -172,25 +176,18 @@ export fn _start() callconv(.C) noreturn {
     apic.lvt_timer.setVector(gate);
     apic.lvt_timer.unmask();
 
-    apic.timer_intial_count.write(@as(u32, 1) << 28);
+    apic.timer_initial_count.write(@as(u32, 1) << 28);
 
-    // Funny color animation
-    for (0..255) |b| {
-        for (0..main_framebuffer.height) |h| {
-            const g: u8 = @intCast(h * 255 / main_framebuffer.height);
-            for (0..main_framebuffer.width) |w| {
-                main_framebuffer.setPixel(
-                    w,
-                    h,
-                    [4]u8{
-                        @intCast(w * 255 / main_framebuffer.width),
-                        g,
-                        @intCast(b),
-                        0xff,
-                    },
-                );
-            }
+    var current = count;
+    while (true) {
+        // Has to be volatile otherwise it gets optimized to while (true) {}
+        while (@as(*volatile u8, &count).* == current) {}
+        if (count >= 4) {
+            break;
         }
+        terminal.print(".", .{});
+        current = count;
+        apic.timer_initial_count.write(@as(u32, 1) << 28);
     }
 
     // Once we get going places, this function should never return,
