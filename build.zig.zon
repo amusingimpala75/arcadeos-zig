@@ -14,8 +14,8 @@
             .hash = "1220f946f839eab2ec49dca1c805ce72ac3e3ef9c47b3afcdecd1c05a7b35f66d277",
         },
         .@"limine-bin" = .{
-            .url = "git+https://github.com/limine-bootloader/limine#v5.x-branch-binary",
-            .hash = "12205f6fd8efe4ae5c4b935373267babc14c08c0fe8daeeca7b59721289bde4c23e7",
+            .url = "git+https://github.com/limine-bootloader/limine#v6.x-branch-binary",
+            .hash = "122014cc654bab2f2aa34039537ad3865dc9a508cb15397c315836f4f7106c86fb88",
         },
     },
 }
