@@ -153,7 +153,7 @@ export fn _start() callconv(.C) noreturn {
     // Load interrupts, settings all gates to a default handler
     IDT.init();
     // Install the page fault handler
-    paging.installPageFaultHandler();
+    paging.installPageFaultHandler() catch @panic("page handler already installed");
     // Intialize kernel-controlled recursive mapping scheme
     // so we don't need the bootloader
     paging.initKernelPaging();
@@ -167,9 +167,10 @@ export fn _start() callconv(.C) noreturn {
     terminal.print("Hello, World!\n", .{});
 
     apic.timer_divide_configuration.write(1);
-    apic.lvt_timer.setVector(32);
+    const gate = 48;
+    IDT.setGate(gate, &timerHandler, 0x8F) catch @panic("gate 32 already in use");
+    apic.lvt_timer.setVector(gate);
     apic.lvt_timer.unmask();
-    IDT.setGate(32, &timerHandler, 0x8F);
 
     apic.timer_intial_count.write(@as(u32, 1) << 28);
 

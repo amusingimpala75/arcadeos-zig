@@ -493,6 +493,6 @@ fn pageFaultHandler(isf: *IDT.ISF) void {
     @panic(msg);
 }
 
-pub fn installPageFaultHandler() void {
-    IDT.setGate(@intCast(14), &pageFaultHandler, 0x8F);
+pub fn installPageFaultHandler() !void {
+    try IDT.setGate(@intCast(14), &pageFaultHandler, 0x8F);
 }

@@ -281,7 +281,10 @@ const exceptionStubs = blk: {
 // setting the exceptionHandler[index] and updating the type attributes
 // (no idea of there would be any issue with comptime handling of ptr->int,
 // maybe that would have to be done at initialization instead)
-pub fn setGate(comptime index: u8, handler: *const ExceptionHandler, type_attr: u8) void {
+pub fn setGate(comptime index: u8, handler: *const ExceptionHandler, type_attr: u8) !void {
+    if (exception_handlers[index] != &exceptionHandlerDefault) {
+        return error.InUse;
+    }
     const address_int: u64 = @intFromPtr(&(exceptionStubs[index].func));
     idt[index] = .{
         .offset_low = @truncate(address_int),
@@ -298,7 +301,7 @@ pub fn init() void {
     idtr.base = @intFromPtr(&idt);
 
     inline for (0..32) |i| {
-        setGate(@intCast(i), &exceptionHandlerDefault, 0x8F);
+        setGate(@intCast(i), &exceptionHandlerDefault, 0x8F) catch unreachable;
     }
 
     // Loads the IDT

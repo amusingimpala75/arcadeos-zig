@@ -1,5 +1,7 @@
 const assembly = @import("assembly.zig");
 
+const IDT = @import("IDT.zig");
+
 const pic1_command = 0x20;
 const pic1_data = 0x21;
 
@@ -30,6 +32,14 @@ pub fn setupAndDisable() void {
 
     assembly.outb(pic1_data, 0xff);
     assembly.outb(pic2_data, 0xff);
+
+    inline for (master_vec..master_vec + 16) |i| {
+        IDT.setGate(@intCast(i), &remappedHandler, 0x8F) catch unreachable;
+    }
+}
+
+fn remappedHandler(_: *IDT.ISF) void {
+    @panic("Hit remapped IRQ for the PIC");
 }
 
 fn wait() void {
