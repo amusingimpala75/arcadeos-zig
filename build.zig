@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const disk_image_step = @import("disk-image-step");
+
 pub fn build(b: *std.Build) !void {
     const limine_module = b.dependency("limine-zig", .{}).module("limine");
 
@@ -46,12 +48,8 @@ pub fn build(b: *std.Build) !void {
     kernel.root_module.addImport("limine", limine_module);
     kernel.root_module.addOptions("config", kernel_options);
 
-    const kernel_install = b.addInstallArtifact(kernel, .{
-        .dest_dir = .{ .override = .{ .custom = "iso" } },
-    });
+    const kernel_install = b.addInstallArtifact(kernel, .{});
     b.getInstallStep().dependOn(&kernel_install.step);
-
-    const limine_bin_dep = b.dependency("limine-bin", .{});
 
     const timeout = b.option(
         usize,
@@ -59,29 +57,33 @@ pub fn build(b: *std.Build) !void {
         "How long to wait at the boot screen before automatic boot. (Default: 0)",
     ) orelse 0;
 
-    const build_iso_step, const iso_path = addIsoStep(
+    const kaslr = b.option(
+        bool,
+        "kaslr",
+        "Enable kernel address-space layout randomization (Defaults to true for release, false for debug",
+    ) orelse (optimize != .Debug);
+
+    const build_iso_step = addIsoStep(
         b,
-        limine_bin_dep,
         kernel_install,
-        true,
+        kaslr,
         timeout,
         "iso",
     );
 
     const run_cmd = b.addSystemCommand(&[_][]const u8{
-        "qemu-system-x86_64", "-M",     "q35",        "-m",    "2G",
-        "-cdrom",             iso_path, "-no-reboot", "-boot", "d",
-        "-serial",            "stdio",  "-smp",       "2",
+        "qemu-system-x86_64", "-M",                                   "q35",        "-m",      "2G",
+        "-drive",             "format=raw,file=zig-out/arcadeos.img", "-no-reboot", "-serial", "stdio",
+        "-smp",               "2",
     });
     run_cmd.step.dependOn(build_iso_step);
     const run_step = b.step("run", "Run arcadeos");
     run_step.dependOn(&run_cmd.step);
 
-    const build_debug_iso_step, const debug_iso_path = addIsoStep(
+    const build_debug_iso_step = addIsoStep(
         b,
-        limine_bin_dep,
         kernel_install,
-        false,
+        kaslr,
         timeout,
         "debug_iso",
     );
@@ -90,8 +92,8 @@ pub fn build(b: *std.Build) !void {
         "/bin/sh",
         "-c",
         b.fmt(
-            "qemu-system-x86_64 -M q35 -m 2G -cdrom {s} -boot d -smp 2 --no-reboot -S -s & lldb zig-out/iso/arcadeos.elf",
-            .{debug_iso_path},
+            "qemu-system-x86_64 -M q35 -m 2G -drive format=raw,file={s} -smp 2 --no-reboot -S -s & lldb zig-out/bin/arcadeos.elf",
+            .{"zig-out/arcadeos.img"},
         ),
         // also consider option
         // -d cpu_reset -monitor stdio
@@ -135,63 +137,80 @@ fn generateLimineCfg(b: *std.Build, kaslr: bool, timeout: usize) struct { *std.B
 
 fn addIsoStep(
     b: *std.Build,
-    limine_dep: *std.Build.Dependency,
     kernel_install: *std.Build.Step.InstallArtifact,
     kaslr: bool,
     timeout: usize,
     step_name: []const u8,
-) struct { *std.Build.Step, []const u8 } {
+) *std.Build.Step {
+    const limine = b.dependency("limine-bin", .{});
     const limine_installer = b.addExecutable(.{
         .name = "limine",
         .target = b.resolveTargetQuery(.{}), // native
     });
     limine_installer.addCSourceFile(.{
-        .file = limine_dep.path("limine.c"),
+        .file = limine.path("limine.c"),
         .flags = &[_][]const u8{ "-g", "-O2", "-pipe", "-Wall", "-Wextra", "-std=c99" },
     });
 
     const limine_installer_artifact = b.addInstallArtifact(limine_installer, .{});
     const limine_installer_path = b.fmt("{s}/bin/limine", .{b.install_prefix});
 
-    const iso_prefix = "iso/";
-    const iso_name = "arcadeos.iso";
-
-    const iso_dir = b.fmt("{s}/{s}", .{ b.install_prefix, iso_prefix });
-    const iso_path = b.fmt("{s}/{s}", .{ b.install_prefix, iso_name });
-
-    const mk_iso = b.addSystemCommand(&[_][]const u8{
-        "xorriso",            "-as",             "mkisofs",          "-b",                       "limine-bios-cd.bin",
-        "-no-emul-boot",      "-boot-load-size", "4",                "-boot-info-table",         "--efi-boot",
-        "limine-uefi-cd.bin", "--efi-boot-part", "--efi-boot-image", "--protective-msdos-label", iso_dir,
-        "-o",                 iso_path,
-    });
-
-    mk_iso.step.dependOn(&kernel_install.step);
-
-    inline for (&[_][]const u8{ "limine-bios.sys", "limine-bios-cd.bin", "limine-uefi-cd.bin" }) |file| {
-        mk_iso.step.dependOn(&b.addInstallFile(limine_dep.path(file), iso_prefix ++ file).step);
-    }
-
-    // TODO more when aarch64, etc. supported
-    inline for (&[_][]const u8{"BOOTX64.EFI"}) |file| {
-        mk_iso.step.dependOn(&b.addInstallFile(limine_dep.path(file), iso_prefix ++ "EFI/BOOT/" ++ file).step);
-    }
-
     const generate_cfg, const cfg_path = generateLimineCfg(b, kaslr, timeout);
-    const install_cfg = b.addInstallFile(cfg_path, iso_prefix ++ "limine.cfg");
-    install_cfg.step.dependOn(&generate_cfg.step);
-    mk_iso.step.dependOn(&install_cfg.step);
+
+    const disk_image_step_dep = b.dependency("disk-image-step", .{});
+    var rootfs = disk_image_step.FileSystemBuilder.init(b);
+
+    inline for (&.{ "limine-bios.sys", "limine-bios-cd.bin", "limine-uefi-cd.bin" }) |file| {
+        rootfs.addFile(limine.path(file), file);
+    }
+    inline for (&.{"BOOTX64.EFI"}) |file| {
+        rootfs.addFile(limine.path(file), "EFI/BOOT/" ++ file);
+    }
+    rootfs.addFile(cfg_path, "limine.cfg");
+    rootfs.addFile(kernel_install.emitted_bin.?, "arcadeos.elf");
+
+    const initialize_disk = disk_image_step.initializeDisk(disk_image_step_dep, 8 * disk_image_step.MiB, .{
+        .mbr = .{
+            .partitions = .{
+                &.{
+                    .offset = 512 * 4,
+                    .size = 512 * (2048 - 4),
+                    .type = .empty,
+                    .bootable = false,
+                    .data = .uninitialized,
+                },
+                &.{
+                    .offset = 512 * 2048,
+                    .size = 5 * disk_image_step.MiB,
+                    .bootable = true,
+                    .type = .fat16_lba,
+                    .data = .{
+                        .fs = rootfs.finalize(
+                            .{ .format = .fat16, .label = "ROOTFS" },
+                        ),
+                    },
+                },
+                null,
+                null,
+            },
+        },
+    });
+    initialize_disk.step.dependOn(&generate_cfg.step);
+    initialize_disk.step.dependOn(&kernel_install.step);
+
+    const install_disk = b.addInstallFile(initialize_disk.getImageFile(), "arcadeos.img");
+    install_disk.step.dependOn(&initialize_disk.step);
 
     const limine_install = b.addSystemCommand(&[_][]const u8{
         limine_installer_path,
         "bios-install",
-        iso_path,
+        "zig-out/arcadeos.img",
     });
-    limine_install.step.dependOn(&mk_iso.step);
+    limine_install.step.dependOn(&install_disk.step);
     limine_install.step.dependOn(&limine_installer_artifact.step);
 
-    const build_iso_step = b.step(step_name, "Build arcadeos iso");
-    build_iso_step.dependOn(&limine_install.step);
+    const create_iso_step = b.step(step_name, "Create arcadeos iso");
+    create_iso_step.dependOn(&limine_install.step);
 
-    return .{ build_iso_step, iso_path };
+    return create_iso_step;
 }

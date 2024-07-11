@@ -17,5 +17,9 @@
             .url = "git+https://github.com/limine-bootloader/limine#v6.x-branch-binary",
             .hash = "122014cc654bab2f2aa34039537ad3865dc9a508cb15397c315836f4f7106c86fb88",
         },
+        .@"disk-image-step" = .{
+            .url = "git+https://github.com/amusingimpala75/disk-image-step#04881824f85e2eac0caf3ddf52c462d3d38a78f6",
+            .hash = "12208fd2f0f3e5db1bf323e86f33e99216d6d790778710ec917f6335005437e2e684",
+        },
     },
 }
