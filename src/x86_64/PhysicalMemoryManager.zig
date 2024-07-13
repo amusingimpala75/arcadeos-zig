@@ -1,6 +1,8 @@
 const std = @import("std");
 const limine = @import("limine");
 
+const log = std.log.scoped(.physical_mem_manager);
+
 const kernel = @import("../kernel.zig");
 
 const PhysicalMemoryManager = @This();
@@ -81,8 +83,6 @@ block_count: usize,
 /// here it is since this is a place that we loop over the
 /// limine memmap
 klen: usize,
-/// Whether to debug print all allocations to the main serial port
-debug: bool,
 
 comptime {
     // PMM is not allowed to be larger than one block
@@ -93,11 +93,10 @@ comptime {
 /// in the lower half direct map (virt = phys) or the higher half direct map (virt = phys + HHDM_START).
 /// The PMM sits in it's own page, immediately followed by blocks for the `block_map` (padded out to the end
 /// of the block), finally ending with blocks for the free list nodes (also padded out to the end of the block).
-fn initAt(addr: usize, block_count: usize, klen: usize, debug: bool) *PhysicalMemoryManager {
+fn initAt(addr: usize, block_count: usize, klen: usize) *PhysicalMemoryManager {
     var self: *PhysicalMemoryManager = @ptrFromInt(addr);
     self.block_count = block_count;
     self.klen = klen;
-    self.debug = debug;
 
     // Half as many block pairs as blocks, unless odd in which case +1
     const pair_len = divCeil(block_count, 2);
@@ -326,24 +325,24 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
     // look for free block in order <order>
     // if one exists, pop it and return it
     // otherwise, check for one of a larger size and split it down
-    if (self.debug) {
-        kernel.main_serial.print("starting allocation of block of order {}\nstate:\n", .{order});
-        self.print(kernel.main_serial.writer);
-        kernel.main_serial.print("\n", .{});
-        defer {
-            kernel.main_serial.print("done\nstate:\n", .{});
-            self.print(kernel.main_serial.writer);
-            kernel.main_serial.print("\n", .{});
-        }
-    }
+    log.debug(
+        \\starting allocation of block of order {}
+        \\state:
+        \\{}
+        \\
+    , .{ order, self });
+    defer log.debug(
+        \\allocation done
+        \\state:
+        \\{}
+        \\
+    , .{self});
 
     if (self.free_lists[order].first) |_| {
         const node = self.free_lists[order].popFirst().?;
         const ret = node.data;
         self.free_list_nodes.prepend(node);
-        if (self.debug) {
-            kernel.main_serial.print("returning: 0x{X}\n", .{ret});
-        }
+        log.debug("returning: 0x{X}\n", .{ret});
         // TODO zero the page
         return ret;
     } else {
@@ -354,9 +353,7 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
                 const node = self.free_lists[order].popFirst().?;
                 const ret = node.data;
                 self.free_list_nodes.prepend(node);
-                if (self.debug) {
-                    kernel.main_serial.print("returning: 0x{X}\n", .{ret});
-                }
+                log.debug("returning: 0x{X}\n", .{ret});
                 // TODO zero the page
                 return ret;
             }
@@ -419,7 +416,7 @@ fn blockSizeOf(size: usize) usize {
 }
 
 // just for debugging purposes
-fn print(self: PhysicalMemoryManager, writer: anytype) void {
+pub fn format(self: *const PhysicalMemoryManager, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
     std.fmt.format(writer, "blocks managed: {}\n", .{self.block_count}) catch {};
     for (self.free_lists, 0..) |list, i| {
         var val = list.first;
@@ -431,7 +428,9 @@ fn print(self: PhysicalMemoryManager, writer: anytype) void {
             std.fmt.format(writer, " {}", .{val.?.data}) catch {};
             val = val.?.next;
         }
-        std.fmt.format(writer, "\n", .{}) catch {};
+        if (i < self.free_lists.len - 1) {
+            std.fmt.format(writer, "\n", .{}) catch {};
+        }
     }
 }
 
@@ -449,11 +448,11 @@ fn pmmBlockSize(mem_size: usize) usize {
 }
 
 /// Set up the PMM, returning it not success or otherwise an error
-pub fn setupPhysicalMemoryManager(hhdm_start: usize, debug: bool) !*PhysicalMemoryManager {
+pub fn setupPhysicalMemoryManager(hhdm_start: usize) !*PhysicalMemoryManager {
     const response = mem_map_request.response orelse return error.LimineMemMapMissing;
     // Print out all of the mem map entries
     for (response.entries()) |entry| {
-        kernel.main_serial.print("{} {} {}\n", .{
+        log.debug("{} {} {}\n", .{
             entry.kind,
             entry.base >> 12,
             entry.length >> 12,
@@ -481,9 +480,11 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize, debug: bool) !*PhysicalMemo
             // kstart phys and virt in the KernelAddressRequest
             if (entry.kind == limine.MemoryMapEntryType.kernel_and_modules) {
                 if (klen != 0) {
-                    @panic("duplicate kernel memmap entries");
+                    log.warn("duplicate kernel memmap entries: {X} and {X}", .{ klen, entry.length });
+                    klen = @max(klen, entry.length);
+                } else {
+                    klen = entry.length;
                 }
-                klen = entry.length;
             }
         }
         break :blk most;
@@ -511,7 +512,6 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize, debug: bool) !*PhysicalMemo
                 hhdm_start + entry.base,
                 block_count,
                 klen,
-                debug,
             );
         }
     } else return error.NotEnoughPhysicalMemory;
@@ -524,7 +524,10 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize, debug: bool) !*PhysicalMemo
                     break;
                 }
                 pmm.allocBlocksAt(i, 0) catch |err| {
-                    kernel.main_serial.print("uh-oh: {}\n", .{err});
+                    switch (err) {
+                        error.NotManaged => log.err("{X} is not within the management bounds\n", .{i}),
+                        error.AlreadyAllocated => log.err("{X} has already been marked as unusable\n", .{i}),
+                    }
                     @panic("error marking reserved pages as in use");
                 };
             }
@@ -532,12 +535,15 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize, debug: bool) !*PhysicalMemo
     }
 
     // TODO: is this necessary?
-    pmm.allocBlocksAt(0, 0) catch |err| {
-        kernel.main_serial.print("uh-oh: {}\n", .{err});
-        @panic("error marking bottom page as unusable");
+    pmm.allocBlocksAt(0, 0) catch |err| switch (err) {
+        error.AlreadyAllocated => {
+            log.err("the bottom page has already been marked as in use", .{});
+            @panic("error marking bottom page as unusable");
+        },
+        error.NotManaged => unreachable,
     };
 
-    kernel.main_serial.print("pmm at 0x{X}, len 0x{X}\n", .{ @intFromPtr(pmm), pmm_block_size });
+    log.debug("pmm at 0x{X}, len 0x{X}\n", .{ @intFromPtr(pmm), pmm_block_size });
 
     const pmm_paddr = @intFromPtr(pmm) - hhdm_start;
     // map this as well

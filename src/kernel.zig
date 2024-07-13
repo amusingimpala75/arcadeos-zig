@@ -13,6 +13,24 @@ const PIC = @import("x86_64/PIC.zig");
 
 const limine = @import("limine");
 
+fn log(
+    comptime message_level: std.log.Level,
+    comptime scope: @TypeOf(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const color = switch (message_level) {
+        .debug => "37",
+        .info => "97",
+        .warn => "33",
+        .err => "91",
+    };
+    const fmt = "\x1B[" ++ color ++ "m[" ++ comptime message_level.asText() ++ "] (" ++ @tagName(scope) ++ ") " ++ format ++ "\x1B[0m";
+    main_serial.print(fmt, args);
+}
+
+pub const std_options = .{ .logFn = log };
+
 /// Ask limine for a 64K stack.
 /// Should probably be moved to a different location,
 /// possibly one tasked with setting up a stack for
@@ -34,7 +52,7 @@ pub fn panic(msg: []const u8, st: ?*builtin.StackTrace, s: ?usize) noreturn {
     _ = st;
     _ = s;
     // In case of really bad failure, at least print something to serial port
-    main_serial.print("panic! {s}\n", .{msg});
+    std.log.err("panic! {s} \n", .{msg});
     // Get color palette
     const palette = Palette.default;
     // Draw error message background

@@ -2,6 +2,8 @@
 
 const std = @import("std");
 
+const log = std.log.scoped(.interrupt_table);
+
 const kernel = @import("../kernel.zig");
 
 const assembly = @import("assembly.zig");
@@ -63,7 +65,7 @@ pub const ExceptionHandler = fn (*ISF) void;
 fn exceptionHandlerDefault(isf: *ISF) void {
     inline for (@typeInfo(ISF).Struct.fields) |*field| {
         const val: u64 = @field(isf, field.name);
-        kernel.main_serial.print("{s} = {x}\n", .{ field.name, val });
+        log.debug("{s} = {x}\n", .{ field.name, val });
     }
 
     // Thank you Copilot for (largely independently) auto-generating this

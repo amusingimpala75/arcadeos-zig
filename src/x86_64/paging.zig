@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const log = std.log.scoped(.paging);
+
 const limine = @import("limine");
 
 const IDT = @import("IDT.zig");
@@ -16,14 +18,9 @@ export var kernel_loc_req = limine.KernelAddressRequest{};
 pub fn initKernelPaging() void {
     hhdm_start = (hhdm_start_request.response orelse @panic("Could not find where HHDM begins")).offset;
 
-    physical_mem_manager = PhysicalMemoryManager.setupPhysicalMemoryManager(hhdm_start, false) catch |err| {
-        if (err == error.LimineMemMapMissing) {
-            @panic("Limine did not provide a memory map, maybe try rebooting?");
-        } else if (err == error.NotEnoughPhysicalMemory) {
-            @panic("Not enough physical memory to run ArcadeOS on this system");
-        } else {
-            unreachable; // there shouldn't be any other errors?
-        }
+    physical_mem_manager = PhysicalMemoryManager.setupPhysicalMemoryManager(hhdm_start) catch |err| switch (err) {
+        error.LimineMemMapMissing => @panic("Limine did not provide a memory map, maybe try rebooting?"),
+        error.NotEnoughPhysicalMemory => @panic("Not enough physical memory to run ArcadeOS on this system"),
     };
 
     {
@@ -486,7 +483,7 @@ fn pageFaultHandler(isf: *IDT.ISF) void {
         \\mov %cr2, %[addr]
         : [addr] "={rax}" (-> u64),
     );
-    kernel.main_serial.print("page fault at 0x{X} because 0x{X}!\n", .{ cr2, isf.err });
+    log.err("page fault at 0x{X} because 0x{X}!\n", .{ cr2, isf.err });
     const msg = std.fmt.bufPrintZ(&handler_buf, handler_fmt, .{ isf.err, cr2, isf }) catch {
         @panic("Page fault, but could not format the crash message!");
     };
