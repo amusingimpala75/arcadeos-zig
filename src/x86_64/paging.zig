@@ -483,7 +483,7 @@ fn pageFaultHandler(isf: *IDT.ISF) void {
         \\mov %cr2, %[addr]
         : [addr] "={rax}" (-> u64),
     );
-    log.err("page fault at 0x{X} because 0x{X}!\n", .{ cr2, isf.err });
+    log.err("page fault at 0x{X} because 0x{X}!", .{ cr2, isf.err });
     const msg = std.fmt.bufPrintZ(&handler_buf, handler_fmt, .{ isf.err, cr2, isf }) catch {
         @panic("Page fault, but could not format the crash message!");
     };

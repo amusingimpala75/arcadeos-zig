@@ -1,6 +1,8 @@
 const std = @import("std");
 const Serial = @import("Serial.zig");
 const Framebuffer = @import("Framebuffer.zig");
+const log = std.log.scoped(.main);
+
 const Font = @import("fonts/Font.zig");
 const GDT = @import("x86_64/GDT.zig");
 const IDT = @import("x86_64/IDT.zig");
@@ -13,7 +15,8 @@ const PIC = @import("x86_64/PIC.zig");
 
 const limine = @import("limine");
 
-fn log(
+// TODO throw the tag in front of each line of the format
+fn logFn(
     comptime message_level: std.log.Level,
     comptime scope: @TypeOf(.enum_literal),
     comptime format: []const u8,
@@ -25,11 +28,11 @@ fn log(
         .warn => "33",
         .err => "91",
     };
-    const fmt = "\x1B[" ++ color ++ "m[" ++ comptime message_level.asText() ++ "] (" ++ @tagName(scope) ++ ") " ++ format ++ "\x1B[0m";
+    const fmt = "\x1B[" ++ color ++ "m[" ++ comptime message_level.asText() ++ "] (" ++ @tagName(scope) ++ ") " ++ format ++ "\x1B[0m\n";
     main_serial.print(fmt, args);
 }
 
-pub const std_options = .{ .logFn = log };
+pub const std_options = .{ .logFn = logFn };
 
 /// Ask limine for a 64K stack.
 /// Should probably be moved to a different location,
@@ -52,7 +55,7 @@ pub fn panic(msg: []const u8, st: ?*builtin.StackTrace, s: ?usize) noreturn {
     _ = st;
     _ = s;
     // In case of really bad failure, at least print something to serial port
-    std.log.err("panic! {s} \n", .{msg});
+    std.log.scoped(.panic).err("{s}", .{msg});
     // Get color palette
     const palette = Palette.default;
     // Draw error message background
@@ -142,7 +145,7 @@ pub fn panic(msg: []const u8, st: ?*builtin.StackTrace, s: ?usize) noreturn {
 }
 
 // Kernel global serial output, main screen framebuffer, and terminal
-pub var main_serial: Serial = Serial{ .port = Serial.serial1_port };
+var main_serial: Serial = Serial{ .port = Serial.serial1_port };
 pub var main_framebuffer: Framebuffer = undefined;
 pub var terminal = Terminal{};
 

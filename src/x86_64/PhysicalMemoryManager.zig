@@ -329,20 +329,18 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
         \\starting allocation of block of order {}
         \\state:
         \\{}
-        \\
     , .{ order, self });
     defer log.debug(
         \\allocation done
         \\state:
         \\{}
-        \\
     , .{self});
 
     if (self.free_lists[order].first) |_| {
         const node = self.free_lists[order].popFirst().?;
         const ret = node.data;
         self.free_list_nodes.prepend(node);
-        log.debug("returning: 0x{X}\n", .{ret});
+        log.debug("returning: 0x{X}", .{ret});
         // TODO zero the page
         return ret;
     } else {
@@ -353,7 +351,7 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
                 const node = self.free_lists[order].popFirst().?;
                 const ret = node.data;
                 self.free_list_nodes.prepend(node);
-                log.debug("returning: 0x{X}\n", .{ret});
+                log.debug("returning: 0x{X}", .{ret});
                 // TODO zero the page
                 return ret;
             }
@@ -452,7 +450,7 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize) !*PhysicalMemoryManager {
     const response = mem_map_request.response orelse return error.LimineMemMapMissing;
     // Print out all of the mem map entries
     for (response.entries()) |entry| {
-        log.debug("{} {} {}\n", .{
+        log.debug("{} {} {}", .{
             entry.kind,
             entry.base >> 12,
             entry.length >> 12,
@@ -525,8 +523,8 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize) !*PhysicalMemoryManager {
                 }
                 pmm.allocBlocksAt(i, 0) catch |err| {
                     switch (err) {
-                        error.NotManaged => log.err("{X} is not within the management bounds\n", .{i}),
-                        error.AlreadyAllocated => log.err("{X} has already been marked as unusable\n", .{i}),
+                        error.NotManaged => log.err("{X} is not within the management bounds", .{i}),
+                        error.AlreadyAllocated => log.err("{X} has already been marked as unusable", .{i}),
                     }
                     @panic("error marking reserved pages as in use");
                 };
@@ -543,7 +541,7 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize) !*PhysicalMemoryManager {
         error.NotManaged => unreachable,
     };
 
-    log.debug("pmm at 0x{X}, len 0x{X}\n", .{ @intFromPtr(pmm), pmm_block_size });
+    log.debug("pmm at 0x{X}, len 0x{X}", .{ @intFromPtr(pmm), pmm_block_size });
 
     const pmm_paddr = @intFromPtr(pmm) - hhdm_start;
     // map this as well

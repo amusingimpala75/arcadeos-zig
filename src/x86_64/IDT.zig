@@ -65,7 +65,7 @@ pub const ExceptionHandler = fn (*ISF) void;
 fn exceptionHandlerDefault(isf: *ISF) void {
     inline for (@typeInfo(ISF).Struct.fields) |*field| {
         const val: u64 = @field(isf, field.name);
-        log.debug("{s} = {x}\n", .{ field.name, val });
+        log.debug("{s} = {x}", .{ field.name, val });
     }
 
     // Thank you Copilot for (largely independently) auto-generating this
