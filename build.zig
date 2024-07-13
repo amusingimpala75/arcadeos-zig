@@ -92,7 +92,7 @@ pub fn build(b: *std.Build) !void {
         "/bin/sh",
         "-c",
         b.fmt(
-            "qemu-system-x86_64 -M q35 -m 2G -drive format=raw,file={s} -smp 2 --no-reboot -S -s & lldb zig-out/bin/arcadeos.elf",
+            "qemu-system-x86_64 -M q35 -m 2G -drive format=raw,file={s} -smp 2 --no-reboot -S -s & lldb zig-out/bin/arcadeos.elf --one-line 'gdb-remote 1234'",
             .{"zig-out/arcadeos.img"},
         ),
         // also consider option
