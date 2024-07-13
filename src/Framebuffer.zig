@@ -1,6 +1,6 @@
-const limine = @import("limine");
-
 const Framebuffer = @This();
+
+const limine = @import("limine");
 
 /// Width of the framebuffer. Should not be modified after initialization
 width: u64,

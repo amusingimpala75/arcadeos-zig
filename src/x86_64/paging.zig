@@ -2,11 +2,11 @@ const std = @import("std");
 
 const log = std.log.scoped(.paging);
 
-const limine = @import("limine");
-
 const IDT = @import("IDT.zig");
-const kernel = @import("../kernel.zig");
 const PhysicalMemoryManager = @import("PhysicalMemoryManager.zig");
+const kernel = @import("../kernel.zig");
+
+const limine = @import("limine");
 
 var physical_mem_manager: *PhysicalMemoryManager = undefined;
 

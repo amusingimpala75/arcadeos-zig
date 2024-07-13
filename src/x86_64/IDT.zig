@@ -4,10 +4,8 @@ const std = @import("std");
 
 const log = std.log.scoped(.interrupt_table);
 
-const kernel = @import("../kernel.zig");
-
-const assembly = @import("assembly.zig");
 const GDT = @import("GDT.zig");
+const assembly = @import("assembly.zig");
 
 /// Interrupt Descriptor Table
 ///

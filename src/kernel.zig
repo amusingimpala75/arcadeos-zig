@@ -1,17 +1,19 @@
 const std = @import("std");
-const Serial = @import("Serial.zig");
-const Framebuffer = @import("Framebuffer.zig");
+const builtin = @import("std").builtin;
+
 const log = std.log.scoped(.main);
 
+const APIC = @import("x86_64/APIC.zig").APIC;
 const Font = @import("fonts/Font.zig");
+const Framebuffer = @import("Framebuffer.zig");
 const GDT = @import("x86_64/GDT.zig");
 const IDT = @import("x86_64/IDT.zig");
-const builtin = @import("std").builtin;
+const PIC = @import("x86_64/PIC.zig");
+const Palette = @import("Palette.zig");
+const RSDT = @import("x86_64/RSDT.zig");
+const Serial = @import("Serial.zig");
 const Terminal = @import("Terminal.zig");
 const paging = @import("x86_64/paging.zig");
-const Palette = @import("Palette.zig");
-const APIC = @import("x86_64/APIC.zig").APIC;
-const PIC = @import("x86_64/PIC.zig");
 
 const limine = @import("limine");
 

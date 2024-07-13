@@ -1,6 +1,5 @@
-const assembly = @import("assembly.zig");
-
 const IDT = @import("IDT.zig");
+const assembly = @import("assembly.zig");
 
 const pic1_command = 0x20;
 const pic1_data = 0x21;

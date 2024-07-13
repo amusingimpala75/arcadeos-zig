@@ -3,8 +3,8 @@ const Terminal = @This();
 const std = @import("std");
 
 const Font = @import("fonts/Font.zig");
-const kernel = @import("kernel.zig");
 const Palette = @import("Palette.zig");
+const kernel = @import("kernel.zig");
 
 const TerminalError = error{};
 

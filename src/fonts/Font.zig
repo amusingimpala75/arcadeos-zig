@@ -1,3 +1,5 @@
+const Font = @This();
+
 const Framebuffer = @import("../Framebuffer.zig");
 const Palette = @import("../Palette.zig");
 const config = @import("config");
@@ -7,8 +9,6 @@ name: []const u8,
 
 pub const width = 8;
 pub const height = 16;
-
-const Font = @This();
 
 pub const fonts = importFonts();
 

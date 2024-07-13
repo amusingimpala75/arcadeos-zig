@@ -1,11 +1,12 @@
+const PhysicalMemoryManager = @This();
+
 const std = @import("std");
-const limine = @import("limine");
 
 const log = std.log.scoped(.physical_mem_manager);
 
 const kernel = @import("../kernel.zig");
 
-const PhysicalMemoryManager = @This();
+const limine = @import("limine");
 
 export var mem_map_request = limine.MemoryMapRequest{};
 const block_size = 4096;
