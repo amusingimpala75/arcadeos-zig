@@ -31,6 +31,8 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/kernel.zig"),
         .target = target,
         .optimize = optimize,
+        .code_model = .kernel,
+        .pic = true,
     };
 
     const kernel_options = b.addOptions();
@@ -42,9 +44,7 @@ pub fn build(b: *std.Build) !void {
     kernel_options.addOption([]const u8, "font_name", font);
 
     const kernel = b.addExecutable(kernel_executable_options);
-    kernel.pie = true;
     kernel.setLinkerScriptPath(b.path("linker.ld"));
-    kernel.root_module.code_model = .kernel;
     kernel.root_module.addImport("limine", limine_module);
     kernel.root_module.addOptions("config", kernel_options);
 
