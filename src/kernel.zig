@@ -12,28 +12,12 @@ const Panic = @import("Panic.zig");
 const RSDT = @import("x86_64/RSDT.zig");
 const Serial = @import("Serial.zig");
 const Terminal = @import("Terminal.zig");
+const logging = @import("log.zig");
 const paging = @import("x86_64/paging.zig");
 
 const limine = @import("limine");
 
-// TODO throw the tag in front of each line of the format
-fn logFn(
-    comptime message_level: std.log.Level,
-    comptime scope: @TypeOf(.enum_literal),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    const color = switch (message_level) {
-        .debug => "37",
-        .info => "97",
-        .warn => "33",
-        .err => "91",
-    };
-    const fmt = "\x1B[" ++ color ++ "m[" ++ comptime message_level.asText() ++ "] (" ++ @tagName(scope) ++ ") " ++ format ++ "\x1B[0m\n";
-    main_serial.print(fmt, args);
-}
-
-pub const std_options = .{ .logFn = logFn };
+pub const std_options = .{ .logFn = logging.logFn };
 
 /// Ask limine for a 64K stack.
 /// Should probably be moved to a different location,
@@ -50,7 +34,7 @@ pub var stack_start: usize = undefined;
 pub const panic = Panic.panic;
 
 // Kernel global serial output, main screen framebuffer, and terminal
-var main_serial: Serial = Serial{ .port = Serial.serial1_port };
+pub var main_serial: Serial = Serial{ .port = Serial.serial1_port };
 pub var main_framebuffer: Framebuffer = undefined;
 pub var terminal = Terminal{};
 
