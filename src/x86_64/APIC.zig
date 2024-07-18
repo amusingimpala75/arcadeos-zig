@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const assembly = @import("assembly.zig");
-const paging = @import("paging.zig");
+const paging = @import("../paging.zig");
 
 pub const APIC = extern struct {
     reserved1: [2]RegisterInt,

@@ -1,6 +1,6 @@
 const Framebuffer = @This();
 
-const limine = @import("limine");
+const kernel = @import("kernel.zig");
 
 /// Width of the framebuffer. Should not be modified after initialization
 width: u64,
@@ -15,27 +15,20 @@ addr: []u8,
 /// the color to be used with clear(). set using setClearColor()
 clear_color: [4]u8,
 
-export var fb_request: limine.FramebufferRequest = .{};
-
 /// Creates a framebuffer at a given `index` into the list
 /// provided from the bootloader. If there is not a framebuffer
 /// at the requested index, `null` is returned
-pub fn init(index: u64) ?Framebuffer {
-    if (fb_request.response) |resp| {
-        if (resp.framebuffer_count > index) {
-            const fb: *limine.Framebuffer = resp.framebuffers()[index];
-
-            return .{
-                .width = fb.width,
-                .height = fb.height,
-                .pitch = fb.pitch,
-                .bpp = fb.bpp,
-                .addr = fb.address[0 .. fb.pitch * fb.height],
-                .clear_color = [4]u8{ 0, 0, 0, 0xff },
-            };
-        }
-    }
-    return null;
+pub fn init(index: u3) ?Framebuffer {
+    if (kernel.arch.bootloader_info.framebuffers[index]) |fb| {
+        return .{
+            .width = fb.width,
+            .height = fb.height,
+            .pitch = fb.pitch,
+            .bpp = fb.bpp,
+            .addr = fb.address[0 .. fb.pitch * fb.height],
+            .clear_color = [4]u8{ 0, 0, 0, 0xff },
+        };
+    } else return null;
 }
 
 /// byte offset of pixel at `x` by `y` pixels.

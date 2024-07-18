@@ -4,11 +4,9 @@ const std = @import("std");
 
 const log = std.log.scoped(.physical_mem_manager);
 
-const kernel = @import("../kernel.zig");
+const kernel = @import("kernel.zig");
+const paging = @import("paging.zig");
 
-const limine = @import("limine");
-
-export var mem_map_request = limine.MemoryMapRequest{};
 const block_size = 4096;
 
 //8 levels:
@@ -78,12 +76,6 @@ free_lists: [max_order + 1]FreeList,
 free_list_nodes: FreeList,
 /// Number of blocks managed by the PMM
 block_count: usize,
-/// Size of the kernel
-/// TODO:
-/// This should probably be elsewhere, but for now
-/// here it is since this is a place that we loop over the
-/// limine memmap
-klen: usize,
 
 comptime {
     // PMM is not allowed to be larger than one block
@@ -94,10 +86,9 @@ comptime {
 /// in the lower half direct map (virt = phys) or the higher half direct map (virt = phys + HHDM_START).
 /// The PMM sits in it's own page, immediately followed by blocks for the `block_map` (padded out to the end
 /// of the block), finally ending with blocks for the free list nodes (also padded out to the end of the block).
-fn initAt(addr: usize, block_count: usize, klen: usize) *PhysicalMemoryManager {
+fn initAt(addr: usize, block_count: usize) *PhysicalMemoryManager {
     var self: *PhysicalMemoryManager = @ptrFromInt(addr);
     self.block_count = block_count;
-    self.klen = klen;
 
     // Half as many block pairs as blocks, unless odd in which case +1
     const pair_len = divCeil(block_count, 2);
@@ -342,7 +333,7 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
         const ret = node.data;
         self.free_list_nodes.prepend(node);
         log.debug("returning: 0x{X}", .{ret});
-        // TODO zero the page
+        // TODO: zero the page
         return ret;
     } else {
         for (order + 1..max_order + 1) |i| {
@@ -353,7 +344,7 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
                 const ret = node.data;
                 self.free_list_nodes.prepend(node);
                 log.debug("returning: 0x{X}", .{ret});
-                // TODO zero the page
+                // TODO: zero the page
                 return ret;
             }
         }
@@ -447,47 +438,11 @@ fn pmmBlockSize(mem_size: usize) usize {
 }
 
 /// Set up the PMM, returning it not success or otherwise an error
-pub fn setupPhysicalMemoryManager(hhdm_start: usize) !*PhysicalMemoryManager {
-    const response = mem_map_request.response orelse return error.LimineMemMapMissing;
-    // Print out all of the mem map entries
-    for (response.entries()) |entry| {
-        log.debug("{} {} {}", .{
-            entry.kind,
-            entry.base >> 12,
-            entry.length >> 12,
-        });
-    }
-
-    var klen: usize = 0;
-    const map_entries = response.entries();
+fn setupPhysicalMemoryManager(hhdm_start: usize) !*PhysicalMemoryManager {
     // Find the highest address that isn't reserved, bad, or framebuffer
     // At this point we assume that it is the upper limit of RAM,
     // although this is an assumption that may need revisiting
-    const highest_addr = blk: {
-        var most: usize = 0;
-        for (map_entries) |entry| {
-            // If the mem is of a valid type and ends past the
-            // current furthest mem, update the end-of-mem value.
-            if (entry.kind != limine.MemoryMapEntryType.reserved and
-                entry.kind != limine.MemoryMapEntryType.bad_memory and
-                entry.kind != limine.MemoryMapEntryType.framebuffer and
-                entry.base + entry.length > most)
-            {
-                most = entry.base + entry.length;
-            }
-            // Also we're keeping track of the klen, as limine only gives us
-            // kstart phys and virt in the KernelAddressRequest
-            if (entry.kind == limine.MemoryMapEntryType.kernel_and_modules) {
-                if (klen != 0) {
-                    log.warn("duplicate kernel memmap entries: {X} and {X}", .{ klen, entry.length });
-                    klen = @max(klen, entry.length);
-                } else {
-                    klen = entry.length;
-                }
-            }
-        }
-        break :blk most;
-    };
+    const highest_addr = kernel.arch.bootloader_info.highest_physical_addr;
 
     // Require the selected address to be block / page -aligned
     if (highest_addr % block_size != 0) {
@@ -497,40 +452,41 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize) !*PhysicalMemoryManager {
     const pmm_block_size = pmmBlockSize(highest_addr);
     const block_count = highest_addr / block_size;
 
-    const pmm: *PhysicalMemoryManager = for (map_entries) |entry| {
-        // TODO add support for acpi_reclaimable
+    const pmm: *PhysicalMemoryManager = for (kernel.arch.bootloader_info.memmap) |entry| {
+        // TODO: add support for acpi_reclaimable
         // and bootloader_reclaimable
         // also below
 
         // Look for usable memory that is large enough to house the PMM,
         // first fit approach
-        if (entry.kind == limine.MemoryMapEntryType.usable and
-            blockFromAddr(entry.length) > pmm_block_size)
-        {
-            break PhysicalMemoryManager.initAt(
-                hhdm_start + entry.base,
-                block_count,
-                klen,
-            );
-        }
+        if (entry) |e| {
+            if (e.usable and blockFromAddr(e.len) > pmm_block_size) {
+                break PhysicalMemoryManager.initAt(
+                    hhdm_start + e.start,
+                    block_count,
+                );
+            }
+        } else return error.NotEnoughPhysicalMemory;
     } else return error.NotEnoughPhysicalMemory;
 
-    // map the entries that from limine
-    for (map_entries) |entry| {
-        if (entry.kind != limine.MemoryMapEntryType.usable) {
-            for (blockFromAddr(entry.base)..blockFromAddr(entry.base + entry.length)) |i| {
-                if (i >= block_count) {
-                    break;
-                }
-                pmm.allocBlocksAt(i, 0) catch |err| {
-                    switch (err) {
-                        error.NotManaged => log.err("{X} is not within the management bounds", .{i}),
-                        error.AlreadyAllocated => log.err("{X} has already been marked as unusable", .{i}),
+    // mark the unusable entries as not for allocation
+    for (kernel.arch.bootloader_info.memmap) |entry| {
+        if (entry) |e| {
+            if (!e.usable) {
+                for (blockFromAddr(e.start)..blockFromAddr(e.start + e.len)) |i| {
+                    if (i >= block_count) {
+                        break;
                     }
-                    @panic("error marking reserved pages as in use");
-                };
+                    pmm.allocBlocksAt(i, 0) catch |err| {
+                        switch (err) {
+                            error.NotManaged => log.err("{X} is not within the management bounds", .{i}),
+                            error.AlreadyAllocated => log.err("{X} has already been marked as unusable", .{i}),
+                        }
+                        @panic("error marking reserved pages as in use");
+                    };
+                }
             }
-        }
+        } else break;
     }
 
     // TODO: is this necessary?
@@ -553,4 +509,12 @@ pub fn setupPhysicalMemoryManager(hhdm_start: usize) !*PhysicalMemoryManager {
     }
 
     return pmm;
+}
+
+pub var instance: *PhysicalMemoryManager = undefined;
+
+pub fn init() !void {
+    instance = PhysicalMemoryManager.setupPhysicalMemoryManager(kernel.arch.bootloader_info.hhdm_start) catch |err| switch (err) {
+        error.NotEnoughPhysicalMemory => @panic("Not enough physical memory to run ArcadeOS on this system"),
+    };
 }

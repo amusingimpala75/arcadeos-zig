@@ -85,3 +85,35 @@ pub inline fn writemsr(reg: u32, eax: u32, edx: u32) void {
           [reg] "{ecx}" (reg),
     );
 }
+
+pub inline fn getPageTablePhysAddr() usize {
+    const bitmask: usize = ~@as(usize, 0b111111111111);
+    return asm volatile (
+        \\mov %cr3, %[addr]
+        : [addr] "={rax}" (-> u64),
+    ) & bitmask;
+}
+
+pub fn setPageTablePhysAddr(addr: usize) void {
+    // Retrive the old value of cr3
+    const old_cr3 = getPageTablePhysAddr();
+    // Preserve the lower 12 bits of the old cr3
+    const new_cr3 = addr | (old_cr3 & 0b111111111111);
+    // Load this into the cr3 register
+    asm volatile (
+        \\mov %[addr], %cr3
+        :
+        : [addr] "rax" (new_cr3),
+    );
+}
+
+pub fn getPageFaultAddr() usize {
+    return asm volatile (
+        \\mov %cr2, %[addr]
+        : [addr] "={rax}" (-> usize),
+    );
+}
+
+pub fn halt() void {
+    asm volatile ("hlt");
+}

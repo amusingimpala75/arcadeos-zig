@@ -3,6 +3,13 @@ Very rough outline of things that need to be done, somewhat based on the guide f
 In addition to these things, I also need to document more code as well as the generall system documentations,
 as well as setting up unit testing for any data structures as well as hopefully even the main OS code itself.
 
+short list:
+- add page_allocator to kernel.os.heap
+- per section kernel page mapping (so we an have W^X)
+- provide good interface for declaring certain sections as needing to be mapped during setup
+- sabi (AML) bindings before ioapic
+- ttf renderer and font
+
 * Early Stage:
 - [X] Terminal
 - [ ] stack smash protection
@@ -21,7 +28,7 @@ as well as setting up unit testing for any data structures as well as hopefully 
   - [ ] multiprocess
   - [ ] efficient message passing
   - [ ] SMP
-- [ ] ext2/3/4 (pick one) file system
+- [ ] bcachefs filesystem
 
 * User Space:
 - [ ] non privileged code

@@ -23,6 +23,7 @@ pub fn build(b: *std.Build) !void {
         .cpu_features_add = enabled,
         .cpu_features_sub = disabled,
         .abi = .none,
+        .ofmt = .elf,
     });
     const optimize = b.standardOptimizeOption(.{});
 

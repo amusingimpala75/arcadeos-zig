@@ -13,7 +13,7 @@ const LogWriter = std.io.Writer(
     logWrite,
 );
 
-// TODO write all bytes between '\n's once as a slice
+// TODO: write all bytes between '\n's once as a slice
 fn logWrite(self: Log, data: []const u8) LogError!usize {
     for (data) |c| {
         kernel.main_serial.print("{c}", .{c});

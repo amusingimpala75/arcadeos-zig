@@ -1,35 +1,38 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const log = std.log.scoped(.main);
 
 const APIC = @import("x86_64/APIC.zig").APIC;
 const Framebuffer = @import("Framebuffer.zig");
-const GDT = @import("x86_64/GDT.zig");
 const IDT = @import("x86_64/IDT.zig");
 const PIC = @import("x86_64/PIC.zig");
 const Palette = @import("Palette.zig");
-const Panic = @import("Panic.zig");
-const RSDT = @import("x86_64/RSDT.zig");
+const Panic = @import("panic.zig");
+const PhysicalMemoryManager = @import("PhysicalMemoryManager.zig");
 const Serial = @import("Serial.zig");
 const Terminal = @import("Terminal.zig");
 const logging = @import("log.zig");
-const paging = @import("x86_64/paging.zig");
+const paging = @import("paging.zig");
 
-const limine = @import("limine");
+pub const arch = switch (builtin.cpu.arch) {
+    .x86_64 => @import("x86_64/arch.zig"),
+    else => |a| @compileError(@tagName(a) ++ "is unsupported"),
+};
+
+// Otherwise Zig discards the file and doesn't export the _start fn
+comptime {
+    _ = arch;
+}
 
 pub const std_options = .{ .logFn = logging.logFn };
 
-/// Ask limine for a 64K stack.
-/// Should probably be moved to a different location,
-/// possibly one tasked with setting up a stack for
-/// the kernel that isn't in bootloader-reclaimable memory
-pub export var stack_req = limine.StackSizeRequest{
-    .stack_size = 1 << 16,
+pub const os = struct {
+    pub const heap = struct {
+        //pub const page_allocator: std.mem.Allocator.VTable = .{
+        //};
+    };
 };
-
-/// the value of %rsp when the kernel starts
-/// see note above about being moved elsewhere
-pub var stack_start: usize = undefined;
 
 pub const panic = Panic.panic;
 
@@ -47,28 +50,11 @@ fn timerHandler(_: *IDT.ISF) void {
 
 var apic: *APIC = undefined;
 
-export fn _start() callconv(.C) noreturn {
-    // store the stack pointer
-    asm volatile (
-        \\mov %rsp, %[addr]
-        : [addr] "={rax}" (stack_start),
-    );
-    // Initialize serial output on COM1
-    main_serial.init() catch unreachable;
-    // Initialize main framebuffer for display
-    main_framebuffer = Framebuffer.init(0) orelse {
-        @panic("Could not initialize framebuffer!\n");
+pub fn kmain() noreturn {
+    PhysicalMemoryManager.init() catch |err| {
+        @panic("error initializing physical memory manager: " ++ @errorName(err));
     };
-    main_framebuffer.setClearColor(Palette.default.bg.rgbByteArray());
-    main_framebuffer.clear();
-    // Initialize terminal for printing
-    terminal.init();
-    // Load GDT with generic full-range descriptors
-    GDT.initializeGDT();
-    // Load interrupts, settings all gates to a default handler
-    IDT.init();
-    // Install the page fault handler
-    paging.installPageFaultHandler() catch @panic("page handler already installed");
+
     // Intialize kernel-controlled recursive mapping scheme
     // so we don't need the bootloader
     paging.initKernelPaging();
@@ -102,5 +88,5 @@ export fn _start() callconv(.C) noreturn {
 
     // Once we get going places, this function should never return,
     // and so we have to panic first
-    @panic("Kernel exited _start method!");
+    @panic("Kernel exited kmain!");
 }
