@@ -1,13 +1,21 @@
+//! Interface for a terminal writing to a framebuffer
+
 const Terminal = @This();
 
 const std = @import("std");
 
 const Font = @import("fonts/Font.zig");
+const Framebuffer = @import("Framebuffer.zig");
 const Palette = @import("Palette.zig");
-const kernel = @import("kernel.zig");
 
 const TerminalError = error{};
+const TerminalWriter = std.io.GenericWriter(
+    *Terminal,
+    TerminalError,
+    terminalWrite,
+);
 
+// these are the default widths/heights of terminals
 const width = 80;
 const height = 24;
 
@@ -17,24 +25,33 @@ const TerminalRingbuffer = @import("util.zig").Ringbuffer(
     [1]u8{' '} ** width,
 );
 
+/// Character rolling-buffer, representing the screen
 chars: TerminalRingbuffer = TerminalRingbuffer.init(),
+/// The current row of the cursor
 row: u8 = 0,
+/// The current column of the cursor
 col: u8 = 0,
+/// The palette of the terminal
 palette: *const Palette = Palette.default,
-self_ptr: *Terminal = undefined,
-writer: std.io.AnyWriter = .{ .context = undefined, .writeFn = &terminalWrite },
-char_scale: u8 = 0,
+/// GenericWriter interface for the term
+writer: TerminalWriter = .{ .context = undefined },
+/// Scale of the characters in pixels
+char_scale: u8 = 1,
+/// The framebuffer to draw to
+framebuffer: *Framebuffer = undefined,
 
-pub fn init(self: *Terminal) void {
-    const max_width_scale = kernel.main_framebuffer.width / (Font.width * width);
-    const max_height_scale = kernel.main_framebuffer.height / (Font.height * height);
-
+/// Initialize the terminal to use the given framebuffer
+pub fn init(self: *Terminal, fb: *Framebuffer) void {
+    // Scale the characters by as large as possible to fit the 24:80
+    const max_width_scale = fb.width / (Font.width * width);
+    const max_height_scale = fb.height / (Font.height * height);
     self.char_scale = @intCast(@min(max_width_scale, max_height_scale));
 
-    self.self_ptr = self;
-    self.writer.context = @ptrCast(&self.self_ptr);
+    self.framebuffer = fb;
+    self.writer.context = @ptrCast(self);
 }
 
+/// move the text one line up the screen
 fn advanceLine(self: *Terminal) void {
     self.chars.advanceHead();
     var curr = self.chars.get(0);
@@ -45,6 +62,7 @@ fn advanceLine(self: *Terminal) void {
     self.col = 0;
 }
 
+/// set the next character
 fn putChar(self: *Terminal, char: u8) void {
     self.chars.get(0)[self.col] = char;
     self.col += 1;
@@ -53,11 +71,8 @@ fn putChar(self: *Terminal, char: u8) void {
     }
 }
 
-fn terminalWrite(ctx: *const anyopaque, chars: []const u8) anyerror!usize {
-    const self: *Terminal = @as(
-        *const *Terminal,
-        @alignCast(@ptrCast(ctx)),
-    ).*;
+/// write a slice to the terminal, wrapping if necessary
+fn terminalWrite(self: *Terminal, chars: []const u8) TerminalError!usize {
     var i: usize = 0;
     while (i < chars.len) : (i += 1) {
         switch (chars[i]) {
@@ -68,6 +83,7 @@ fn terminalWrite(ctx: *const anyopaque, chars: []const u8) anyerror!usize {
     return chars.len;
 }
 
+/// draw the given character
 fn drawChar(self: *Terminal, char: u8, x: usize, y: usize) void {
     const char_width = Font.width * self.char_scale;
     const char_height = Font.height * self.char_scale;
@@ -77,7 +93,7 @@ fn drawChar(self: *Terminal, char: u8, x: usize, y: usize) void {
     //      time this part takes
     if (char != ' ') {
         Font.fonts[0].drawCharScaled(
-            kernel.main_framebuffer,
+            self.framebuffer,
             char,
             self.palette,
             true,
@@ -86,7 +102,7 @@ fn drawChar(self: *Terminal, char: u8, x: usize, y: usize) void {
             self.char_scale,
         );
     } else {
-        kernel.main_framebuffer.renderTexture(
+        self.framebuffer.renderTexture(
             x * char_width,
             y * char_height,
             char_width,
@@ -98,6 +114,7 @@ fn drawChar(self: *Terminal, char: u8, x: usize, y: usize) void {
     }
 }
 
+/// redraw the terminal
 pub fn refresh(self: *Terminal) void {
     for (0..self.row + 1) |y| {
         for (0..width) |x| {
@@ -110,6 +127,7 @@ pub fn refresh(self: *Terminal) void {
     }
 }
 
+/// print formatted text to the terminal
 pub fn print(self: *Terminal, comptime str: []const u8, args: anytype) void {
     std.fmt.format(self.writer, str, args) catch unreachable;
     self.refresh();

@@ -1,5 +1,10 @@
+//! Palette.zig contains basic data structures to
+//! describe a visual theme of the system, as well
+//! as keeping track of the selected palette.
+
 const Palette = @This();
 
+/// The default palette, which is gruvbox
 pub const default: *const Palette = &gruvbox;
 
 const gruvbox: Palette = .{
@@ -22,12 +27,15 @@ const gruvbox: Palette = .{
     .fg_bright = Color.fromRGB(0xebdbb2),
 };
 
-pub const Color = struct {
+/// A color represented as the individual components,
+pub const Color = packed struct(u32) {
     r: u8,
     g: u8,
     b: u8,
     a: u8 = 0xFF,
 
+    /// create an opaque color `rgb` assuming `rgb` is
+    /// is inn the RGB format
     pub fn fromRGB(rgb: u24) Color {
         return .{
             .r = rgb >> 16 & 0xFF,
@@ -36,6 +44,8 @@ pub const Color = struct {
         };
     }
 
+    /// Convert the color into a 4-byte array
+    /// in the RGBA format
     pub fn rgbByteArray(self: Color) [4]u8 {
         return [4]u8{ self.r, self.g, self.b, self.a };
     }

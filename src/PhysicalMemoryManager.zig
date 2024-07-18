@@ -1,3 +1,15 @@
+//! The physical memory manager is a buddy-allocator
+//! based manager of the physical memory (or RAM)
+//! of the system. It can before block allocations
+//! at any granularity between one and 8 blocks in size,
+//! to assist in reducing memory fragmentation.
+//!
+//! Additonally, since the buddy allocator retains free
+//! lists (for size -> block) and a list of block metadata
+//! (for block -> size/availability), not only is allocation
+//! of a block O(1) (popping from the front of a linked list),
+//! but freeing it is just as quick.
+
 const PhysicalMemoryManager = @This();
 
 const std = @import("std");
@@ -7,12 +19,12 @@ const log = std.log.scoped(.physical_mem_manager);
 const kernel = @import("kernel.zig");
 const paging = @import("paging.zig");
 
-const block_size = 4096;
+// Match the block size to the page size
+const block_size = paging.page_size;
 
 //8 levels:
 // requires 3 bits (4 bits per block when including the free bit)
 // 4K -> 512K
-
 const max_order = 7;
 
 /// Stores data about a block, specifically whether it is free, and what level (2 ^ n blocks large) is it
@@ -137,27 +149,38 @@ pub fn byteSize(self: PhysicalMemoryManager) usize {
 
 // Requires the free list nodes to be set up first
 fn setupBuddies(self: *PhysicalMemoryManager, order: u3, start: usize, end: usize) void {
-    const step: usize = @as(usize, 1) << order;
+    const step: u8 = @as(u8, 1) << order;
     var idx = start;
-    // TODO: I'm not feeling great about this <=, I need to think through it to be sure what I'm doing is correct
+    // TODO: I'm not feeling great about this <=, I need to
+    //       think through it to be sure what I'm doing is correct
     while (idx + step <= end) : (idx += step) {
+        // Mark all blocks in this super-block as having the
+        // given order and being free
         for (0..step) |i| {
             var blk = self.getBlock(idx + i);
             blk.setFree(true);
             blk.setLevel(order);
         }
+        // Add a Node for the block to the respective order free list
         var node = self.free_list_nodes.popFirst().?;
         node.data = idx;
         self.free_lists[order].prepend(node);
     }
 
+    // Try calling again, just to make sure any blocks without
+    // room for a full order-n size block can be added,
+    // just of a smaller degree
+    // TODO: is this necessary, or can I just assume
+    //       that the free memory is going to be at
+    //       least 512K aligned?
     if (order > 0) {
         @call(.always_tail, setupBuddies, .{ self, order - 1, idx, end });
     }
 }
 
-// Merge the block at <block> with it's buddy if possible (ie. same order and free),
-// repeating as many times as possible
+/// Merge the block at <block> with it's buddy if possible (ie. same order and free),
+/// repeating as many times as possible
+/// This assumes that <block> is added to its respective free list
 fn mergeBlocks(self: *PhysicalMemoryManager, block: usize) void {
     // get the left and right indices of the buddies
     const order = self.getBlock(block).level();
@@ -243,6 +266,8 @@ fn mergeBlocks(self: *PhysicalMemoryManager, block: usize) void {
     }
 }
 
+/// Frees a block, marking it as usable, adding it to the free lists,
+/// and then trying to consolidate it with its buddy
 pub fn freeBlock(self: *PhysicalMemoryManager, block: usize) !void {
     if (block >= self.block_count) {
         return error.NotManaged;
@@ -259,7 +284,9 @@ pub fn freeBlock(self: *PhysicalMemoryManager, block: usize) !void {
     self.mergeBlocks(block);
 }
 
-// Assumes that the block in which <block> resides is being managed in a free list
+/// Reduces the block down to the requested size.
+///
+/// Assumes that the block in which <block> resides is being managed in a free list
 fn splitBlockDownTo(self: *PhysicalMemoryManager, block: usize, down_to: u3) void {
     // Check that the block is in fact larger than the requested size
     const order = self.getBlock(block).level();
@@ -313,10 +340,10 @@ fn splitBlockDownTo(self: *PhysicalMemoryManager, block: usize, down_to: u3) voi
     @call(.always_tail, splitBlockDownTo, .{ self, block, down_to });
 }
 
+/// Requests the allocation of a block of order <order>
+/// This allocation may return error.OutOfMemory if the
+/// allocator is out of memory
 pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
-    // look for free block in order <order>
-    // if one exists, pop it and return it
-    // otherwise, check for one of a larger size and split it down
     log.debug(
         \\starting allocation of block of order {}
         \\state:
@@ -328,6 +355,9 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
         \\{}
     , .{self});
 
+    // look for free block in order <order>
+    // if one exists, pop it and return it
+    // otherwise, check for one of a larger size and split it down
     if (self.free_lists[order].first) |_| {
         const node = self.free_lists[order].popFirst().?;
         const ret = node.data;
@@ -352,10 +382,17 @@ pub fn allocBlocks(self: *PhysicalMemoryManager, order: u3) !usize {
     return error.OutOfMemory;
 }
 
+/// Allocates a block of the requsted address
+/// Only to be used during initialization, when reserved parts
+/// of memroy are marked as unusable
+///
+/// Will return an error if the region is already reserved
 fn allocBlocksAt(self: *PhysicalMemoryManager, block: usize, order: u3) !void {
+    // ensure the block is in the allocation's managed region
     if (block >= self.block_count) {
         return error.NotManaged;
     }
+
     // check if the block is at the required level
     // if so, remove it thusly. Otherwise, set it split it down to the correct size
     var b = self.getBlock(block);
@@ -366,6 +403,8 @@ fn allocBlocksAt(self: *PhysicalMemoryManager, block: usize, order: u3) !void {
         self.splitBlockDownTo(block, order);
     }
 
+    // find the block size-reduced, and make
+    // remove it from the free lists (may be O(n))
     var prev = self.free_lists[order].first;
     if (prev.?.data == block) {
         self.free_list_nodes.prepend(self.free_lists[order].popFirst().?);
@@ -514,7 +553,15 @@ fn setupPhysicalMemoryManager(hhdm_start: usize) !*PhysicalMemoryManager {
 pub var instance: *PhysicalMemoryManager = undefined;
 
 pub fn init() !void {
-    instance = PhysicalMemoryManager.setupPhysicalMemoryManager(kernel.arch.bootloader_info.hhdm_start) catch |err| switch (err) {
-        error.NotEnoughPhysicalMemory => @panic("Not enough physical memory to run ArcadeOS on this system"),
+    instance = PhysicalMemoryManager.setupPhysicalMemoryManager(kernel.arch.bootloader_info.hhdm_start) catch |err| {
+        log.err("not enough physical mem for the PMM", .{});
+        return err;
     };
+    const vaddr = @intFromPtr(instance);
+    paging.addInitialMapping(.{
+        .virtual_addr = vaddr,
+        .physical_addr = vaddr - kernel.arch.bootloader_info.hhdm_start,
+        .len = instance.byteSize(),
+        .access = .kernel_rw,
+    });
 }

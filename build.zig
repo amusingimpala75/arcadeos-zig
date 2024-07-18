@@ -48,6 +48,7 @@ pub fn build(b: *std.Build) !void {
     kernel.setLinkerScriptPath(b.path("linker.ld"));
     kernel.root_module.addImport("limine", limine_module);
     kernel.root_module.addOptions("config", kernel_options);
+    kernel.root_module.red_zone = false;
 
     const kernel_install = b.addInstallArtifact(kernel, .{});
     b.getInstallStep().dependOn(&kernel_install.step);

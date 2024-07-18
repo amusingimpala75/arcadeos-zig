@@ -1,14 +1,15 @@
 Very rough outline of things that need to be done, somewhat based on the guide from [[http://wiki.osdev.org/Creating_An_Operating_System][the osdev wiki]].
 
-In addition to these things, I also need to document more code as well as the generall system documentations,
+In addition to these things, I also need to document more code as well as the general system documentations,
 as well as setting up unit testing for any data structures as well as hopefully even the main OS code itself.
 
 short list:
 - add page_allocator to kernel.os.heap
-- per section kernel page mapping (so we an have W^X)
-- provide good interface for declaring certain sections as needing to be mapped during setup
 - sabi (AML) bindings before ioapic
 - ttf renderer and font
+- arch-specific docs
+- cleanup panic.zig
+- rename ringbuffer.zig
 
 * Early Stage:
 - [X] Terminal

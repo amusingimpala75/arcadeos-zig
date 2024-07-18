@@ -13,6 +13,15 @@ const recurse: u9 = @as(u9, @truncate(0xffffffff80000000 >> 39)) - 1;
 
 const offset_bitmask = (1 << 9) - 1; // 511
 
+pub const PageAccess = enum {
+    kernel_r,
+    kernel_rw,
+    kernel_rx,
+    kernel_rwx, // TODO: remove this once the linker.ld
+    // actually works for storing the location of the segments
+    // and not just defaulting to 0.
+};
+
 pub const Entry = packed struct(u64) {
     present: bool,
     writable: bool,
@@ -29,7 +38,7 @@ pub const Entry = packed struct(u64) {
     available2: u11 = 0,
     no_execute: bool,
 
-    pub fn setAsKernelRWX(self: *Entry, phys_addr: usize) void {
+    fn setAsKernelRWX(self: *Entry, phys_addr: usize) void {
         if (phys_addr & (@as(usize, 1) << 12) - 1 != 0) {
             @panic("phys_addr is not 4096 aligned");
         }
@@ -47,7 +56,61 @@ pub const Entry = packed struct(u64) {
         };
     }
 
-    pub fn setAsUnavailable(self: *Entry) void {
+    fn setAsKernelR(self: *Entry, phys_addr: usize) void {
+        if (phys_addr & (@as(usize, 1) << 12) - 1 != 0) {
+            @panic("phys_addr is not 4096 aligned");
+        }
+
+        self.* = Entry{
+            .present = true,
+            .writable = false,
+            .user_accessible = false,
+            .write_through_cache = true,
+            .disable_cache = true,
+            .large_page = false,
+            .global = false,
+            .physical_addr_page = @truncate(phys_addr >> 12),
+            .no_execute = true,
+        };
+    }
+
+    fn setAsKernelRX(self: *Entry, phys_addr: usize) void {
+        if (phys_addr & (@as(usize, 1) << 12) - 1 != 0) {
+            @panic("phys_addr is not 4096 aligned");
+        }
+
+        self.* = Entry{
+            .present = true,
+            .writable = false,
+            .user_accessible = false,
+            .write_through_cache = true,
+            .disable_cache = true,
+            .large_page = false,
+            .global = false,
+            .physical_addr_page = @truncate(phys_addr >> 12),
+            .no_execute = false,
+        };
+    }
+
+    fn setAsKernelRW(self: *Entry, phys_addr: usize) void {
+        if (phys_addr & (@as(usize, 1) << 12) - 1 != 0) {
+            @panic("phys_addr is not 4096 aligned");
+        }
+
+        self.* = Entry{
+            .present = true,
+            .writable = true,
+            .user_accessible = false,
+            .write_through_cache = true,
+            .disable_cache = true,
+            .large_page = false,
+            .global = false,
+            .physical_addr_page = @truncate(phys_addr >> 12),
+            .no_execute = true,
+        };
+    }
+
+    fn setAsUnavailable(self: *Entry) void {
         self.* = Entry{
             .present = false,
             .writable = false,
@@ -84,22 +147,13 @@ pub fn alloc() !*PageTable {
 
     // The pmm returns the physical addr of the block,
     // so we need to add the hhdm start
-    var self: *PageTable = @ptrFromInt((blk << 12) + kernel.arch.bootloader_info.hhdm_start);
-
-    self.init();
-
-    return self;
+    return @ptrFromInt((blk << 12) + kernel.arch.bootloader_info.hhdm_start);
 }
 
 pub fn init(self: *PageTable) void {
     for (&self.entries) |*entry| {
         entry.setAsUnavailable();
     }
-}
-
-fn allocNoInit() !*PageTable {
-    const blk = try PhysicalMemoryManager.instance.allocBlocks(0);
-    return @ptrFromInt((blk << 12) + kernel.arch.bootloader_info.hhdm_start);
 }
 
 fn isLoaded(self: *PageTable) bool {
@@ -185,17 +239,17 @@ pub fn resolve(vaddr: usize) !usize {
     }
 }
 
-pub fn mapAll(pml4: *PageTable, vaddr: usize, paddr: usize, len: usize) !void {
+pub fn mapAll(pml4: *PageTable, vaddr: usize, paddr: usize, len: usize, access: PageAccess) !void {
     var i: usize = 0;
     while (i < len) : (i += paging.page_size) {
-        try pml4.map(vaddr + i, paddr + i);
+        try pml4.map(vaddr + i, paddr + i, access);
     }
 }
 
 /// Do not call after initial setup; see PageTable.map instead
 /// Maps a `len` length block of bytes at `virt` to `phys`.
 /// Needs the physical memory allocator and pml4 page table
-fn mapUnloaded(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
+fn mapUnloaded(pml4: *PageTable, vaddr: usize, paddr: usize, access: PageAccess) !void {
     const pml4_offset: u9 = @truncate(vaddr >> 39);
     const pml3_offset: u9 = @truncate(vaddr >> 30);
     const pml2_offset: u9 = @truncate(vaddr >> 21);
@@ -205,6 +259,7 @@ fn mapUnloaded(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
         @ptrFromInt((pml4.entries[pml4_offset].physical_addr_page << 12) + kernel.arch.bootloader_info.hhdm_start)
     else blk: {
         const val = try PageTable.alloc();
+        val.init();
         pml4.entries[pml4_offset].setAsKernelRWX(val.physicalAddr());
         break :blk val;
     };
@@ -213,6 +268,7 @@ fn mapUnloaded(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
         @ptrFromInt((pml3.entries[pml3_offset].physical_addr_page << 12) + kernel.arch.bootloader_info.hhdm_start)
     else blk: {
         const val = try PageTable.alloc();
+        val.init();
         pml3.entries[pml3_offset].setAsKernelRWX(val.physicalAddr());
         break :blk val;
     };
@@ -221,17 +277,27 @@ fn mapUnloaded(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
         @ptrFromInt((pml2.entries[pml2_offset].physical_addr_page << 12) + kernel.arch.bootloader_info.hhdm_start)
     else blk: {
         const val = try PageTable.alloc();
+        val.init();
         pml2.entries[pml2_offset].setAsKernelRWX(val.physicalAddr());
         break :blk val;
     };
 
-    pml1.entries[pml1_offset].setAsKernelRWX(paddr);
+    if (pml1.entries[pml1_offset].present) {
+        return error.AlreadyMapped;
+    }
+
+    switch (access) {
+        .kernel_r => pml1.entries[pml1_offset].setAsKernelR(paddr),
+        .kernel_rw => pml1.entries[pml1_offset].setAsKernelRW(paddr),
+        .kernel_rx => pml1.entries[pml1_offset].setAsKernelRX(paddr),
+        .kernel_rwx => pml1.entries[pml1_offset].setAsKernelRWX(paddr),
+    }
 }
 
 // TODO: support large pages and caller-defined entry configuration
-pub fn map(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
+pub fn map(pml4: *PageTable, vaddr: usize, paddr: usize, access: PageAccess) !void {
     if (!pml4.isLoaded()) {
-        try pml4.mapUnloaded(vaddr, paddr);
+        try pml4.mapUnloaded(vaddr, paddr, access);
         return;
     }
     defer pml4.load(); // always reload CR3 until targeted TLB flushing is implemented
@@ -242,7 +308,7 @@ pub fn map(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
     const pml1_offset = vaddr >> 12 & offset_bitmask;
 
     if (!pml4.entries[pml4_offset].present) {
-        const t = try PageTable.allocNoInit();
+        const t = try PageTable.alloc();
         pml4.entries[pml4_offset].setAsKernelRWX(t.physicalAddr());
         pml3Recurse(pml4_offset).init();
     }
@@ -250,7 +316,7 @@ pub fn map(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
     const pml3: *PageTable = pml3Recurse(pml4_offset);
 
     if (!pml3.entries[pml3_offset].present) {
-        const t = try PageTable.allocNoInit();
+        const t = try PageTable.alloc();
         pml3.entries[pml3_offset].setAsKernelRWX(t.physicalAddr());
         pml2Recurse(pml4_offset, pml3_offset).init();
     }
@@ -258,7 +324,7 @@ pub fn map(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
     const pml2: *PageTable = pml2Recurse(pml4_offset, pml3_offset);
 
     if (!pml2.entries[pml2_offset].present) {
-        const t = try PageTable.allocNoInit();
+        const t = try PageTable.alloc();
         pml2.entries[pml2_offset].setAsKernelRWX(t.physicalAddr());
         pml1Recurse(pml4_offset, pml3_offset, pml2_offset).init();
     }
@@ -268,10 +334,16 @@ pub fn map(pml4: *PageTable, vaddr: usize, paddr: usize) !void {
         return error.AlreadyMapped;
     }
     pml1.entries[pml1_offset].setAsKernelRWX(paddr);
+    switch (access) {
+        .kernel_r => pml1.entries[pml1_offset].setAsKernelR(paddr),
+        .kernel_rw => pml1.entries[pml1_offset].setAsKernelRW(paddr),
+        .kernel_rx => pml1.entries[pml1_offset].setAsKernelRX(paddr),
+        .kernel_rwx => pml1.entries[pml1_offset].setAsKernelRWX(paddr),
+    }
 }
 
-pub fn hhdmap(pml4: *PageTable, addr: usize) !usize {
-    try pml4.map(addr + kernel.arch.bootloader_info.hhdm_start, addr);
+pub fn hhdmap(pml4: *PageTable, addr: usize, access: PageAccess) !usize {
+    try pml4.map(addr + kernel.arch.bootloader_info.hhdm_start, addr, access);
     return addr + kernel.arch.bootloader_info.hhdm_start;
 }
 
@@ -333,9 +405,10 @@ pub fn unmap(pml4: *PageTable, addr: usize) !usize {
     return block;
 }
 
-pub fn allocPage(self: *PageTable) !*anyopaque {
+pub fn allocPage(self: *PageTable, access: PageAccess) !*align(paging.page_size) anyopaque {
     const blk = try PhysicalMemoryManager.instance.allocBlocks(1);
-    return @ptrFromInt(try self.hhdmap(blk << 12));
+    errdefer PhysicalMemoryManager.instance.freeBlock(blk) catch unreachable;
+    return @ptrFromInt(try self.hhdmap(blk << 12, access));
 }
 
 pub fn freePage(self: *PageTable, page: *anyopaque) !void {

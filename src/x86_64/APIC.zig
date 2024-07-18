@@ -48,7 +48,7 @@ pub const APIC = extern struct {
         assembly.writemsr(msr, eax | 0x800, edx);
         const paddr = eax | (@as(u64, @intCast(edx)) << 32);
 
-        try pml4.map(vaddr, paddr);
+        try pml4.map(vaddr, paddr, .kernel_rw);
         var self: *APIC = @ptrFromInt(vaddr);
         self.init();
         return self;

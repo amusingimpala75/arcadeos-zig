@@ -7,8 +7,7 @@ const APIC = @import("x86_64/APIC.zig").APIC;
 const Framebuffer = @import("Framebuffer.zig");
 const IDT = @import("x86_64/IDT.zig");
 const PIC = @import("x86_64/PIC.zig");
-const Palette = @import("Palette.zig");
-const Panic = @import("panic.zig");
+const panic_handler = @import("panic.zig");
 const PhysicalMemoryManager = @import("PhysicalMemoryManager.zig");
 const Serial = @import("Serial.zig");
 const Terminal = @import("Terminal.zig");
@@ -29,12 +28,11 @@ pub const std_options = .{ .logFn = logging.logFn };
 
 pub const os = struct {
     pub const heap = struct {
-        //pub const page_allocator: std.mem.Allocator.VTable = .{
-        //};
+        //pub const page_allocator = paging.allocator;
     };
 };
 
-pub const panic = Panic.panic;
+pub const panic = panic_handler.panic;
 
 // Kernel global serial output, main screen framebuffer, and terminal
 pub var main_serial: Serial = Serial{ .port = Serial.serial1_port };
@@ -52,7 +50,8 @@ var apic: *APIC = undefined;
 
 pub fn kmain() noreturn {
     PhysicalMemoryManager.init() catch |err| {
-        @panic("error initializing physical memory manager: " ++ @errorName(err));
+        log.err("{}", .{err});
+        @panic("error initializing physical memory manager");
     };
 
     // Intialize kernel-controlled recursive mapping scheme

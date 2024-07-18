@@ -1,11 +1,12 @@
-/// Serial interface adaptor
-/// provides easy access for printing
-/// data to a serial port
+///! Serial interface adaptor
+///! provides easy access for printing
+///! data to a serial port
 const Serial = @This();
 
 const std = @import("std");
 
-const assembly = @import("x86_64/assembly.zig");
+const kernel = @import("kernel.zig");
+const assembly = kernel.arch.assembly;
 
 const SerialError = error{};
 const SerialWriter = std.io.Writer(
@@ -14,6 +15,7 @@ const SerialWriter = std.io.Writer(
     serialWrite,
 );
 
+/// Serial port for printing the data
 port: u16,
 writer: SerialWriter = .{ .context = undefined },
 

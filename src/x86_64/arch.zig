@@ -5,7 +5,6 @@ const log = std.log.scoped(.x86_64);
 const Framebuffer = @import("../Framebuffer.zig");
 const GDT = @import("GDT.zig");
 const IDT = @import("IDT.zig");
-const Palette = @import("../Palette.zig");
 const RSDT = @import("RSDT.zig");
 const BootloaderInfo = @import("../BootloaderInfo.zig");
 const kernel = @import("../kernel.zig");
@@ -43,19 +42,18 @@ export fn _start() callconv(.C) noreturn {
     };
     // Initialize main framebuffer for display
     kernel.main_framebuffer = Framebuffer.init(0) orelse {
-        @panic("Could not initialize framebuffer!\n");
+        @panic("Could not find the framebuffer!\n");
     };
-    kernel.main_framebuffer.setClearColor(Palette.default.bg.rgbByteArray());
     kernel.main_framebuffer.clear();
     // Initialize terminal for printing
-    kernel.terminal.init();
+    kernel.terminal.init(&kernel.main_framebuffer);
 
     // Load GDT with generic full-range descriptors
     GDT.initializeGDT();
     // Load interrupts, settings all gates to a default handler
     IDT.init();
     // Install the page fault handler
-    paging.installPageFaultHandler() catch @panic("page handler already installed");
+    paging.handler.install() catch @panic("page handler already installed");
 
     const rsdt_info = RSDT.getInfo() catch |err| switch (err) {
         error.InvalidRsdp => @panic("rsdp failed checksum"),

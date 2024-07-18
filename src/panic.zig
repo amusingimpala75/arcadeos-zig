@@ -1,3 +1,5 @@
+// TODO: docs, cleanup
+
 const std = @import("std");
 const builtin = @import("builtin");
 
@@ -6,8 +8,9 @@ const log = std.log.scoped(.panic);
 const Font = @import("fonts/Font.zig");
 const Palette = @import("Palette.zig");
 const kernel = @import("kernel.zig");
+const paging = @import("paging.zig");
 
-// TODO base on allocated pages
+// TODO: base on allocated pages
 var addr_map_buffer: [1 << 19]u8 = undefined;
 var addr_map_allocator = std.heap.FixedBufferAllocator.init(&addr_map_buffer);
 
@@ -135,6 +138,15 @@ pub fn init() !void {
     try debug_info.address_map.putNoClobber(@intFromPtr(address), &dwarf_info);
 
     initialized = true;
+
+    const elf_virt = kernel.arch.bootloader_info.kernel_elf_pstart + kernel.arch.bootloader_info.hhdm_start;
+    const elf_phys = kernel.arch.bootloader_info.kernel_elf_pstart;
+    paging.addInitialMapping(.{
+        .virtual_addr = elf_virt,
+        .physical_addr = elf_phys,
+        .len = kernel.arch.bootloader_info.kernel_elf_len,
+        .access = .kernel_r,
+    });
 }
 
 const LogErrOutStream = struct {
@@ -147,7 +159,7 @@ const LogErrOutStream = struct {
     }
 };
 
-// TODO prettify with dwarf info
+// TODO: prettify with dwarf info
 //      waiting on ziglang/zig#7962
 fn dumpStacktrace(return_addr: u64) void {
     var iterator = std.debug.StackIterator.init(return_addr, null);
@@ -220,7 +232,7 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, return_addr: ?usize) 
     // Print header
     for ("A critical error has occured!", 0..) |c, i| {
         font.drawCharScaled(
-            kernel.main_framebuffer,
+            &kernel.main_framebuffer,
             c,
             palette,
             false,
@@ -248,7 +260,7 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, return_addr: ?usize) 
             x = msg_wrap_x;
         } else {
             font.drawCharScaled(
-                kernel.main_framebuffer,
+                &kernel.main_framebuffer,
                 c,
                 palette,
                 false,

@@ -41,7 +41,7 @@ const RSDP = extern struct {
     rsdt_addr: u32 align(1),
 
     fn get() !*RSDP {
-        var rsdp: *RSDP = @alignCast(@ptrCast(arch.bootloader_info.rsdt_phys_addr));
+        var rsdp: *RSDP = @ptrFromInt(arch.bootloader_info.rsdp_phys_addr + arch.bootloader_info.hhdm_start);
         if (!rsdp.validateRsdp())
             return error.InvalidRsdp;
         if (rsdp.revision > 0)
