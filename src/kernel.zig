@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const log = std.log.scoped(.main);
 
 const APIC = @import("x86_64/APIC.zig").APIC;
+const IOAPIC = @import("x86_64/IOAPIC.zig");
 const Framebuffer = @import("Framebuffer.zig");
 const IDT = @import("x86_64/IDT.zig");
 const PIC = @import("x86_64/PIC.zig");
@@ -63,6 +64,23 @@ pub fn kmain() noreturn {
     PIC.setupAndDisable();
     apic = APIC.map(0x1000000) catch @panic("unhandled apic init error");
 
+    const val = IDT.requestGate(.low, &keyHandler, 0x8F) catch @panic("could not request key gate");
+
+    const ioapic = IOAPIC.init(0xFEC00000);
+    log.debug("ioapic: {}", .{ioapic});
+    ioapic.configureVector(1, .{
+        .vector = val,
+        .del_mode = .lowest_priority,
+        .dest_mode = .physical,
+        .waiting_on_lapic = false,
+        .remote_irr = false,
+        .trigger_level = true,
+        .mask = false,
+        .destination = 0, // TODO de-hardcode this
+    });
+
+    log.debug("apic keyboard enabled", .{});
+
     terminal.print("booting", .{});
 
     apic.timer_divide_configuration.write(1);
@@ -89,4 +107,12 @@ pub fn kmain() noreturn {
     // Once we get going places, this function should never return,
     // and so we have to panic first
     @panic("Kernel exited kmain!");
+}
+
+fn keyHandler(_: *IDT.ISF) void {
+    log.debug("key pressed", .{});
+
+    _ = arch.assembly.inb(0x60);
+
+    apic.eoi.clear();
 }

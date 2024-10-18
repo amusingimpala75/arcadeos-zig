@@ -5,11 +5,12 @@ as well as setting up unit testing for any data structures as well as hopefully 
 
 short list:
 - add page_allocator to kernel.os.heap
-- sabi (AML) bindings before ioapic
+- uACPI (AML) bindings
 - ttf renderer and font
 - arch-specific docs
 - cleanup panic.zig
 - rename ringbuffer.zig
+- PCI driver
 
 * Early Stage:
 - [X] Terminal
