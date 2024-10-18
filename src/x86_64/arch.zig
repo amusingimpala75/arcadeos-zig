@@ -5,7 +5,7 @@ const log = std.log.scoped(.x86_64);
 const Framebuffer = @import("../Framebuffer.zig");
 const GDT = @import("GDT.zig");
 const IDT = @import("IDT.zig");
-const RSDT = @import("RSDT.zig");
+const ACPI = @import("../acpi.zig");
 const BootloaderInfo = @import("../BootloaderInfo.zig");
 const kernel = @import("../kernel.zig");
 const paging = @import("../paging.zig");
@@ -55,13 +55,10 @@ export fn _start() callconv(.C) noreturn {
     // Install the page fault handler
     paging.handler.install() catch @panic("page handler already installed");
 
-    const rsdt_info = RSDT.getInfo() catch |err| switch (err) {
-        error.InvalidRsdp => @panic("rsdp failed checksum"),
-        error.RsdpIsExtended => @panic("rsdp is an xsdp"),
-        error.InvalidRsdt => @panic("rsdt is invalid"),
-        error.MadtMissing => @panic("madt is missing"),
+    const acpi_info = ACPI.getInfo() catch |err| switch (err) {
+        error.MalformedACPI => @panic("ACPI tables are corrupted"),
     };
-    log.debug("found {} rsdts", .{rsdt_info});
+    log.debug("found {} acpi", .{acpi_info});
 
     kernel.kmain();
 }
