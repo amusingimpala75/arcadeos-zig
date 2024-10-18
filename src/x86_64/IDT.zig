@@ -31,7 +31,7 @@ const Entry = packed struct(u128) {
     ist: u3 = 0,
     reserved1: u5 = 0,
     /// 0xE = interrupt, 0xF = trap
-    type_attr: u8,
+    type_attr: u8, // separate out into type, bits, reserved, and privilege
     /// see `offset_low`
     offset_mid: u16,
     /// see `offset_low`
@@ -294,6 +294,37 @@ pub fn setGate(comptime index: u8, handler: *const ExceptionHandler, type_attr: 
     };
 
     exception_handlers[index] = handler;
+}
+
+pub const Priority = enum(u8) {
+    low = 48,
+    medium = 117,
+    high = 186,
+};
+
+pub fn requestGate(comptime priority: Priority, handler: *const ExceptionHandler, type_attr: u8) !u8 {
+    inline for (@intFromEnum(priority)..idt.len) |idx| {
+        if (exception_handlers[idx] == &exceptionHandlerDefault) {
+            const addr = @intFromPtr(&exceptionStubs[idx].func);
+            idt[idx] = .{
+                .offset_low = @truncate(addr),
+                .type_attr = type_attr,
+                .offset_mid = @truncate(addr >> 16),
+                .offset_high = @truncate(addr >> 32),
+            };
+
+            exception_handlers[idx] = handler;
+            return idx;
+        }
+    }
+    return error.NotAvailableAtRequestedPriority;
+}
+
+pub fn releaseGate(idx: u8) !void {
+    if (exception_handlers[idx] == &exceptionHandlerDefault) {
+        return error.AlreadyReleased;
+    }
+    exception_handlers[idx] = &exceptionHandlerDefault;
 }
 
 /// sets up the IDT with the bottom 32 gates opened for the regularly expected CPU interrupts

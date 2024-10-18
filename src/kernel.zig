@@ -66,8 +66,9 @@ pub fn kmain() noreturn {
     terminal.print("booting", .{});
 
     apic.timer_divide_configuration.write(1);
-    const gate = 48;
-    IDT.setGate(gate, &timerHandler, 0x8F) catch @panic("gate 32 already in use");
+    // const gate = 48;
+    // IDT.setGate(gate, &timerHandler, 0x8F) catch @panic("gate 32 already in use");
+    const gate = IDT.requestGate(.low, &timerHandler, 0x8F) catch @panic("no gates available");
     apic.lvt_timer.setVector(gate);
     apic.lvt_timer.unmask();
 
