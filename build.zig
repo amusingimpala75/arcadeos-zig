@@ -73,11 +73,19 @@ pub fn build(b: *std.Build) !void {
         "iso",
     );
 
-    const run_cmd = b.addSystemCommand(&[_][]const u8{
-        "qemu-system-x86_64", "-M",                                   "q35",        "-m",      "2G",
-        "-drive",             "format=raw,file=zig-out/arcadeos.img", "-no-reboot", "-serial", "stdio",
-        "-smp",               "2",
-    });
+    const args = blk: {
+        var args = [_][]const u8{
+            "qemu-system-x86_64", "-M",                                   "q35",        "-m",      "2G",
+            "-drive",             "format=raw,file=zig-out/arcadeos.img", "-no-reboot", "-serial", "stdio",
+            "-smp",               "2",
+        };
+        if (optimize == .ReleaseFast) {
+            break :blk &(args ++ .{"-full-screen"});
+        }
+        break :blk &args;
+    };
+
+    const run_cmd = b.addSystemCommand(args);
     run_cmd.step.dependOn(build_iso_step);
     const run_step = b.step("run", "Run arcadeos");
     run_step.dependOn(&run_cmd.step);
