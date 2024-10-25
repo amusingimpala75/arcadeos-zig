@@ -19,18 +19,14 @@ const TerminalWriter = std.io.GenericWriter(
 const width = 80;
 const height = 24;
 
-const TerminalRingbuffer = @import("util.zig").Ringbuffer(
-    [width]u8,
-    height,
-    [1]u8{' '} ** width,
-);
-
-/// Character rolling-buffer, representing the screen
-chars: TerminalRingbuffer = TerminalRingbuffer.init(),
 /// The current row of the cursor
 row: u8 = 0,
 /// The current column of the cursor
 col: u8 = 0,
+/// Index of the top row of the screen
+top_row: u8 = 0,
+/// Actual chars
+chars: [height][width]u8 = .{.{' '} ** width} ** height,
 /// The palette of the terminal
 palette: *const Palette = Palette.default,
 /// GenericWriter interface for the term
@@ -51,20 +47,34 @@ pub fn init(self: *Terminal, fb: *Framebuffer) void {
     self.writer.context = @ptrCast(self);
 }
 
-/// move the text one line up the screen
+pub fn scroll(self: *Terminal, rows: u8) void {
+    self.top_row = (self.top_row + rows) % width;
+}
+
+pub fn getChar(self: *Terminal, row: u8, col: u8) u8 {
+    return self.chars[(self.top_row + row) % self.chars.len][col];
+}
+
+fn setChar(self: *Terminal, row: u8, col: u8, c: u8) void {
+    self.chars[(self.top_row + row) % self.chars.len][col] = c;
+}
+
+/// Move cursor down, or scroll if necessary
 fn advanceLine(self: *Terminal) void {
-    self.chars.advanceHead();
-    var curr = self.chars.get(0);
-    for (0..curr.len) |i| {
-        curr[i] = ' ';
+    if (self.row + 1 == height) {
+        self.scroll(1);
+    } else {
+        self.row += 1;
     }
-    self.row = @min(self.row + 1, height - 1);
+    for (0..width) |i| {
+        self.setChar(self.row, @intCast(i), ' ');
+    }
     self.col = 0;
 }
 
 /// set the next character
 fn putChar(self: *Terminal, char: u8) void {
-    self.chars.get(0)[self.col] = char;
+    self.setChar(self.row, self.col, char);
     self.col += 1;
     if (self.col == width) {
         self.advanceLine();
@@ -77,6 +87,21 @@ fn terminalWrite(self: *Terminal, chars: []const u8) TerminalError!usize {
     while (i < chars.len) : (i += 1) {
         switch (chars[i]) {
             '\n' => self.advanceLine(),
+            '\x08' => {
+                if (self.col == 0) {
+                    if (self.row != 0) {
+                        self.col = width - 1;
+                        self.row -= 1;
+                        while (self.col > 0 and self.getChar(self.row, self.col) == ' ') {
+                            self.col -= 1;
+                        }
+                        self.setChar(self.row, self.col, ' ');
+                    }
+                    continue;
+                }
+                self.col -= 1;
+                self.setChar(self.row, self.col, ' ');
+            },
             else => |char| self.putChar(char),
         }
     }
@@ -119,9 +144,12 @@ pub fn refresh(self: *Terminal) void {
     for (0..self.row + 1) |y| {
         for (0..width) |x| {
             self.drawChar(
-                self.chars.get(y)[x],
+                self.getChar(
+                    @intCast(y),
+                    @intCast(x),
+                ),
                 x,
-                height - 1 - y,
+                y,
             );
         }
     }
