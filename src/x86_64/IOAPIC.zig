@@ -1,4 +1,7 @@
 const IOAPIC = @This();
+const std = @import("std");
+
+const log = std.log.scoped(.ioapic);
 
 addr: usize,
 id: u32,
@@ -75,6 +78,7 @@ pub fn init(addr: usize) IOAPIC {
 
 pub fn configureVector(self: IOAPIC, idx: u32, entry: RedirectionEntry) void {
     if (idx >= self.count) {
+        log.err("Index {} out of bounds for length {}", .{ idx, self.count });
         @panic("IOAPIC vector out of bounds");
     }
 
@@ -86,15 +90,15 @@ pub fn configureVector(self: IOAPIC, idx: u32, entry: RedirectionEntry) void {
 }
 
 fn read(addr: usize, idx: u32) u32 {
-    const sel: *u32 = @ptrFromInt(addr);
-    const win: *u32 = @ptrFromInt(addr + 0x10);
+    const sel: *volatile u32 = @ptrFromInt(addr);
+    const win: *volatile u32 = @ptrFromInt(addr + 0x10);
     sel.* = idx;
     return win.*;
 }
 
 fn write(addr: usize, idx: u32, val: u32) void {
-    const sel: *u32 = @ptrFromInt(addr);
-    const win: *u32 = @ptrFromInt(addr + 0x10);
+    const sel: *volatile u32 = @ptrFromInt(addr);
+    const win: *volatile u32 = @ptrFromInt(addr + 0x10);
     sel.* = idx;
     win.* = val;
 }
