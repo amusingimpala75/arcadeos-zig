@@ -10,6 +10,7 @@ const IDT = @import("x86_64/IDT.zig");
 const PIC = @import("x86_64/PIC.zig");
 const panic_handler = @import("panic.zig");
 const PhysicalMemoryManager = @import("PhysicalMemoryManager.zig");
+const PS2Keyboard = @import("PS2Keyboard.zig");
 const Serial = @import("Serial.zig");
 const Terminal = @import("Terminal.zig");
 const logging = @import("log.zig");
@@ -40,10 +41,7 @@ pub var main_serial: Serial = Serial{ .port = Serial.serial1_port };
 pub var main_framebuffer: Framebuffer = undefined;
 pub var terminal = Terminal{};
 
-var count: u8 = 0;
-
 fn timerHandler(_: *IDT.ISF) void {
-    count += 1;
     apic.eoi.clear();
 }
 
@@ -84,24 +82,43 @@ pub fn kmain() noreturn {
     terminal.print("booting", .{});
 
     apic.timer_divide_configuration.write(1);
-    // const gate = 48;
-    // IDT.setGate(gate, &timerHandler, 0x8F) catch @panic("gate 32 already in use");
     const gate = IDT.requestGate(.low, &timerHandler, 0x8F) catch @panic("no gates available");
     apic.lvt_timer.setVector(gate);
     apic.lvt_timer.unmask();
 
     apic.timer_initial_count.write(@as(u32, 1) << 28);
 
-    var current = count;
+    var count: usize = 0;
     while (true) {
-        // Has to be volatile otherwise it gets optimized to while (true) {}
-        while (@as(*volatile u8, &count).* == current) {}
+        // Wait until the timer triggers
+        arch.assembly.halt();
+        // Reset the timer
+        apic.timer_initial_count.write(@as(u32, 1) << 28);
+        // Updat the screen or break
+        count += 1;
         if (count >= 4) {
             break;
         }
         terminal.print(".", .{});
-        current = count;
-        apic.timer_initial_count.write(@as(u32, 1) << 28);
+    }
+
+    terminal.scroll(1);
+    terminal.refresh();
+    terminal.col = 0;
+    terminal.row = 0;
+
+    while (true) {
+        arch.assembly.halt();
+        while (kb.nextKeypress()) |kp| {
+            if (kp == .pressed) {
+                const c = kp.pressed;
+                // TODO fix this on ReleaseFast
+                //if (c == 0x1B) @panic("Escape was pressed");
+                terminal.print("{c}", .{c});
+            } else if (kp == .unsupported) {
+                log.warn("Unsupported keycode: {}", .{kp.unsupported});
+            }
+        }
     }
 
     // Once we get going places, this function should never return,
@@ -110,9 +127,8 @@ pub fn kmain() noreturn {
 }
 
 fn keyHandler(_: *IDT.ISF) void {
-    log.debug("key pressed", .{});
-
-    _ = arch.assembly.inb(0x60);
-
+    kb.keyHandler();
     apic.eoi.clear();
 }
+
+var kb: PS2Keyboard = undefined;
