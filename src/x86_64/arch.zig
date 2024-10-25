@@ -37,7 +37,11 @@ export fn _start() callconv(.C) noreturn {
     };
     // Initialize panic handler (for debugging extra things)
     panic.init() catch |err| {
-        log.err("{s}", .{@errorName(err)});
+        if (err == error.OutOfMemory) {
+            log.err("Please increase the size of addr_map_buffer in panic.zig", .{});
+        } else {
+            log.err("{s}", .{@errorName(err)});
+        }
         @panic("error loading dwarf info");
     };
     // Initialize main framebuffer for display

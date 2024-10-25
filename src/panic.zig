@@ -11,7 +11,7 @@ const kernel = @import("kernel.zig");
 const paging = @import("paging.zig");
 
 // TODO: base on allocated pages
-var addr_map_buffer: [1 << 19]u8 = undefined;
+var addr_map_buffer: [1 << 20]u8 = undefined;
 var addr_map_allocator = std.heap.FixedBufferAllocator.init(&addr_map_buffer);
 
 var dwarf_info: std.dwarf.DwarfInfo = .{
